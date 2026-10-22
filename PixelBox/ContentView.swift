@@ -133,6 +133,8 @@ struct ContentView: View {
                         }
                         LayersPanel(session: session, width: panelWidth)
                     }
+                    // The divider between the panels would otherwise take all the width it's offered.
+                    .frame(width: panelWidth)
                 }
             }
             if !session.canvasOnly {
