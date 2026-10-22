@@ -1,21 +1,14 @@
-# Compositor
+# PixelBox
 
-Adobe Photoshop costs too much and tools like GIMP don’t feel familiar enough for me to stay in flow. That’s why I built Compositor.
+PixelBox is a free, open-source image editor for macOS, built around a Photoshop-style workflow for compositing and post-processing, with the tools needed to create a pixel-perfect final image.
 
-The goal was to create a full-featured image editor that is completely free and open source. I used to use Photoshop for compositing and post-processing, so Compositor is built around that workflow - with the tools needed to create a pixel-perfect final image.
+PixelBox is a fork of [Compositor](https://github.com/robbietilton/Compositor), created by Robbie Tilton ([@robbietilton](https://github.com/robbietilton)) of Wonder Assembly. Nearly everything here started as his work; see [Credits](#credits).
 
 Because it’s open source, you can download the Xcode project and add, remove, or modify any feature to fit your workflow.
 
 ## Installation
 
-### Download
-Get Compositor from [robbietilton.com/compositor](https://robbietilton.com/compositor), or download the latest release directly from [GitHub Releases](https://github.com/robbietilton/Compositor/releases/latest).
-
-### Homebrew
-
-```sh
-brew install --cask robbietilton-compositor
-```
+Download the latest release from [GitHub Releases](https://github.com/twlatl/PixelBox/releases/latest).
 
 ## Features
 
@@ -79,7 +72,8 @@ brew install --cask robbietilton-compositor
 - Automatic updates, signed and notarized
 
 ### Works with AI agents
-- AI agents and scripts can build and edit projects directly: a `.comp` is a folder of PNG layers and a manifest, and an open project updates live as it's written. See [Writing Compositor projects](docs/writing-comp-files.md)
+- AI agents and scripts can build and edit projects directly: a `.pbox` is a folder of PNG layers and a manifest, and an open project updates live as it's written. See [Writing PixelBox projects](docs/writing-pbox-files.md)
+- Opens projects saved by Compositor (`.comp`) too
 
 ## Requirements
 
@@ -88,22 +82,27 @@ brew install --cask robbietilton-compositor
 
 ## Translations
 
-Compositor is English only for now, and translation pull requests aren't being accepted. It's maintained by one person, every new string would need translating from then on, and translations in languages I don't read can't be reviewed. I'll revisit this once the app settles; until then, please don't open localization PRs.
+PixelBox is English only for now, and translation pull requests aren't being accepted. It's maintained by one person, every new string would need translating from then on, and translations in languages I don't read can't be reviewed. I'll revisit this once the app settles; until then, please don't open localization PRs.
 
 ## Building
 
-Open `Compositor.xcodeproj` and run the **Compositor** scheme.
+Open `PixelBox.xcodeproj` and run the **PixelBox** scheme.
 
 ## Releasing
 
-`scripts/release.sh` builds a Release version, signs it with Developer ID, notarizes and staples it, and packages it into `dist/Compositor-<version>.dmg`.
+`scripts/release.sh` builds a Release version, signs it with Developer ID, notarizes and staples it, and packages it into `dist/PixelBox-<version>.dmg`.
 
 It needs, all kept outside this repository:
 
 - a **Developer ID Application** certificate in the login keychain
-- notarization credentials saved with `xcrun notarytool store-credentials "compositor-notary" …`
+- notarization credentials saved with `xcrun notarytool store-credentials "pixelbox-notary" …`
+- your Apple Developer team ID in `scripts/release.sh` and `scripts/ExportOptions.plist`, and your own Sparkle EdDSA public key as `SUPublicEDKey` in `Config/Info.plist`
 - [`create-dmg`](https://github.com/create-dmg/create-dmg) (`brew install create-dmg`)
+
+## Credits
+
+PixelBox is forked from [Compositor](https://github.com/robbietilton/Compositor) by Robbie Tilton ([@robbietilton](https://github.com/robbietilton)), © 2026 Wonder Assembly LLC, released under the MIT License. The editor, its tools and the project format all come from Compositor. Thank you, Robbie.
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+MIT — see [LICENSE](LICENSE). Compositor's original copyright notice is kept there, as the license requires.

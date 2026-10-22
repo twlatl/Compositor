@@ -29,11 +29,25 @@
 		</dict>
 		<dict>
 			<key>CFBundleTypeName</key>
-			<string>Compositor Project</string>
+			<string>PixelBox Project</string>
 			<key>CFBundleTypeRole</key>
 			<string>Editor</string>
 			<key>LSHandlerRank</key>
 			<string>Owner</string>
+			<key>LSItemContentTypes</key>
+			<array>
+				<string>net.pixegen.pixelbox.project</string>
+			</array>
+			<key>LSTypeIsPackage</key>
+			<true/>
+		</dict>
+		<dict>
+			<key>CFBundleTypeName</key>
+			<string>Compositor Project</string>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>LSHandlerRank</key>
+			<string>Alternate</string>
 			<key>LSItemContentTypes</key>
 			<array>
 				<string>com.compositor.project</string>
@@ -57,7 +71,8 @@
 	<key>SUEnableInstallerLauncherService</key>
 	<true/>
 	<key>SUFeedURL</key>
-	<string>https://raw.githubusercontent.com/robbietilton/Compositor/main/appcast.xml</string>
+	<string>https://raw.githubusercontent.com/twlatl/PixelBox/main/appcast.xml</string>
+	<!-- TODO: replace with PixelBox's own EdDSA public key (Sparkle's generate_keys). This is still Compositor's. -->
 	<key>SUPublicEDKey</key>
 	<string>KZvD724t8QpzTR4OGrHrsCWt538TJ/g/qrTZii+o214=</string>
 	<key>SUEnableAutomaticChecks</key>
@@ -70,10 +85,30 @@
 				<string>public.data</string>
 			</array>
 			<key>UTTypeDescription</key>
-			<string>Compositor Layer</string>
+			<string>PixelBox Layer</string>
 			<key>UTTypeIdentifier</key>
-			<string>com.compositor.layer-row</string>
+			<string>net.pixegen.pixelbox.layer-row</string>
 		</dict>
+		<dict>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>com.apple.package</string>
+			</array>
+			<key>UTTypeDescription</key>
+			<string>PixelBox Project</string>
+			<key>UTTypeIdentifier</key>
+			<string>net.pixegen.pixelbox.project</string>
+			<key>UTTypeTagSpecification</key>
+			<dict>
+				<key>public.filename-extension</key>
+				<array>
+					<string>pbox</string>
+				</array>
+			</dict>
+		</dict>
+	</array>
+	<key>UTImportedTypeDeclarations</key>
+	<array>
 		<dict>
 			<key>UTTypeConformsTo</key>
 			<array>
@@ -91,9 +126,6 @@
 				</array>
 			</dict>
 		</dict>
-	</array>
-	<key>UTImportedTypeDeclarations</key>
-	<array>
 		<dict>
 			<key>UTTypeConformsTo</key>
 			<array>
