@@ -1,8 +1,8 @@
-# PixelBox project format, versions 1–15
+# PixelBox project format, versions 1–16
 
 A `.pbox` file is a macOS document package containing `manifest.json` and an `images/` directory of `<layer UUID>.png` assets.
 
-The manifest identifies `net.pixegen.pixelbox.project`, version `15` for new saves (versions `1`–`14` remain readable), and the sRGB working space. It stores document UUID, pixel dimensions, active layer UUID, and layers in bottom-to-top order. Each layer stores its UUID, name, visibility, transform (origin, size, clockwise rotation, flips, sampling), and optional image filename. Blank layers have no image asset.
+The manifest identifies `net.pixegen.pixelbox.project`, version `16` for new saves (versions `1`–`15` remain readable), and the sRGB working space. It stores document UUID, pixel dimensions, active layer UUID, and layers in bottom-to-top order. Each layer stores its UUID, name, visibility, transform (origin, size, clockwise rotation, flips, sampling), and optional image filename. Blank layers have no image asset.
 
 Embedded PNGs preserve source pixels and transparency; transforms remain separate. Projects survive moving or deleting imported source photos. Saving uses a coordinated atomic package replacement. Unsupported versions, invalid metadata, missing assets, unsafe paths, and oversized data are rejected before replacing the live document.
 
@@ -35,6 +35,8 @@ Version 9 adds three adjustment kinds that sample neighboring pixels: `Gaussian 
 Version 10 lets a text layer color some of its letters differently: optional `colorRuns` in its `text` metadata (see Editable text). Files declaring 1–9 cannot contain it.
 
 Version 11 lets those letters use different faces too: optional `fontRuns` in the same metadata. Files declaring 1–10 cannot contain it. `colorRuns` stays valid from version 10.
+
+Version 16 adds an optional top-level `swatchGroups` array: the folders in the Color and Swatches palette's Swatches tab. Each folder has an `id`, a `name` and a `swatches` array; each swatch has an `id`, a `name` and `red`, `green` and `blue` (sRGB, 0–1). A project whose swatches have never been changed omits the field and shows the default folders; once changed, the array is written even when empty. Ids are unique across folders and swatches, names are at most 1,024 UTF-8 bytes, and a project holds at most 1,000 folders and 10,000 swatches. Swatches imported from Photoshop files (.aco, .ase, .act) or web files (.css, .html, .svg) are converted to sRGB on import and stored the same way. Files declaring 1–15 cannot contain swatches, and older app builds reject v16.
 
 ### Additive layer fields
 

@@ -14,7 +14,7 @@ extension EditorSession {
         }
         return ProjectSnapshot(manifest: ProjectManifest(resolution: document.resolution, documentID: document.id, width: document.width,
             height: document.height, activeLayerID: activeLayerID, layers: layers,
-            guides: document.guides.isEmpty ? nil : document.guides), images: images, masks: masks)
+            guides: document.guides.isEmpty ? nil : document.guides, swatchGroups: document.swatchGroups), images: images, masks: masks)
     }
 
     /// Called only after the entire package has successfully validated and loaded.
@@ -26,7 +26,8 @@ extension EditorSession {
         let manifest = snapshot.manifest
         transformEdit = nil
         document = CanvasDocument(id: manifest.documentID, width: manifest.width, height: manifest.height,
-            layers: snapshot.documentLayers, resolution: manifest.resolution ?? 72, guides: manifest.guides ?? [])
+            layers: snapshot.documentLayers, resolution: manifest.resolution ?? 72, guides: manifest.guides ?? [],
+            swatchGroups: manifest.swatchGroups)
         activeLayerID = manifest.activeLayerID
         projectURL = url
         renamingLayerID = nil
