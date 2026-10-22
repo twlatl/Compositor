@@ -144,8 +144,34 @@ struct GuideTests {
         #expect(grid.isMajor(100) && !grid.isMajor(50))
         // An uneven step still lands on every major line.
         let thirds = LayoutGrid(spacing: 100, subdivisions: 3)
-        #expect(thirds.lines(along: 300).filter(thirds.isMajor) == [0, 100, 200, 300])
+        #expect(thirds.lines(along: 300).filter { thirds.isMajor($0) } == [0, 100, 200, 300])
         #expect(LayoutGrid(spacing: 50, subdivisions: 1).lines(along: 120) == [0, 50, 100])
+    }
+
+    /// Moving the rulers' zero point moves the grid: its lines are laid out from there, both ways, and only the
+    /// ones on the canvas are returned.
+    @Test func layoutGridCountsFromAnOrigin() {
+        let grid = LayoutGrid(spacing: 100, subdivisions: 2)
+        #expect(grid.lines(along: 200, from: 0) == grid.lines(along: 200))
+        #expect(grid.lines(along: 200, from: 30) == [30, 80, 130, 180])
+        #expect(grid.lines(along: 200, from: 30).filter { grid.isMajor($0, from: 30) } == [30, 130])
+        #expect(grid.isMajor(130, from: 30) && !grid.isMajor(100, from: 30) && !grid.isMajor(80, from: 30))
+        // Before the canvas, or past its end, the lines still reach back across it.
+        #expect(grid.lines(along: 200, from: -10) == [40, 90, 140, 190])
+        #expect(grid.lines(along: 200, from: -10).filter { grid.isMajor($0, from: -10) } == [90, 190])
+        #expect(LayoutGrid(spacing: 100, subdivisions: 1).lines(along: 400, from: 450) == [50, 150, 250, 350])
+        #expect(LayoutGrid(spacing: 64, subdivisions: 1).lines(along: 10, from: 30).isEmpty, "no line falls on the canvas")
+        // A fractional origin is taken to the nearest whole pixel.
+        let quarters = LayoutGrid(spacing: 100, subdivisions: 4)
+        #expect(quarters.lines(along: 200, from: 30.6) == [6, 31, 56, 81, 106, 131, 156, 181])
+        #expect(quarters.lines(along: 200, from: 30.4) == quarters.lines(along: 200, from: 30))
+        #expect(quarters.isMajor(131, from: 30.6) && quarters.isMajor(31, from: 30.6) && !quarters.isMajor(6, from: 30.6))
+        #expect(quarters.lines(along: 200, from: -0.4) == quarters.lines(along: 200))
+        // An uneven step still lands on every major line, either side of the origin.
+        let thirds = LayoutGrid(spacing: 100, subdivisions: 3)
+        #expect(thirds.lines(along: 300, from: 150).filter { thirds.isMajor($0, from: 150) } == [50, 150, 250])
+        #expect(thirds.lines(along: 300, from: 150) == [17, 50, 83, 117, 150, 183, 217, 250, 283])
+        #expect(LayoutGrid().lines(along: 64, from: .infinity) == LayoutGrid().lines(along: 64))
     }
 
     @Test func layoutGridKeepsToItsLimits() {

@@ -222,7 +222,7 @@ final class TransformOverlay: NSView {
     }
 
     /// Non-printing layout grid over the document: majors in the chosen style, dotted subdivisions, both in the
-    /// chosen color.
+    /// chosen color. Laid out from the rulers' zero point, so it moves with it.
     private func drawLayoutGrid() {
         guard session.showsGrid, let document = session.document, let transform = documentToView,
               let context = NSGraphicsContext.current?.cgContext else { return }
@@ -230,6 +230,7 @@ final class TransformOverlay: NSView {
         let appearance = session.gridAppearance
         let color = appearance.color.nsColor
         let size = document.size
+        let zero = session.rulerZero
         let scale = session.viewport.pointsPerPixel
         let hairline = 1 / max(session.viewport.backingScale, 1)
         let subdivisionGap = grid.step * scale
@@ -240,11 +241,11 @@ final class TransformOverlay: NSView {
         if subdivisionGap >= 4 {
             context.setLineDash(phase: 0, lengths: [1 / max(scale, 0.0001), 2 / max(scale, 0.0001)])
             let path = CGMutablePath()
-            for x in grid.lines(along: size.width) where !grid.isMajor(x) {
+            for x in grid.lines(along: size.width, from: zero.x) where !grid.isMajor(x, from: zero.x) {
                 path.move(to: CGPoint(x: x, y: 0))
                 path.addLine(to: CGPoint(x: x, y: size.height))
             }
-            for y in grid.lines(along: size.height) where !grid.isMajor(y) {
+            for y in grid.lines(along: size.height, from: zero.y) where !grid.isMajor(y, from: zero.y) {
                 path.move(to: CGPoint(x: 0, y: y))
                 path.addLine(to: CGPoint(x: size.width, y: y))
             }
@@ -254,11 +255,11 @@ final class TransformOverlay: NSView {
         context.setLineDash(phase: 0, lengths: appearance.style.dashes.map { $0 / max(scale, 0.0001) })
         context.setStrokeColor(color.withAlphaComponent(appearance.majorAlpha).cgColor)
         let majors = CGMutablePath()
-        for x in grid.lines(along: size.width) where grid.isMajor(x) {
+        for x in grid.lines(along: size.width, from: zero.x) where grid.isMajor(x, from: zero.x) {
             majors.move(to: CGPoint(x: x, y: 0))
             majors.addLine(to: CGPoint(x: x, y: size.height))
         }
-        for y in grid.lines(along: size.height) where grid.isMajor(y) {
+        for y in grid.lines(along: size.height, from: zero.y) where grid.isMajor(y, from: zero.y) {
             majors.move(to: CGPoint(x: 0, y: y))
             majors.addLine(to: CGPoint(x: size.width, y: y))
         }
