@@ -112,6 +112,11 @@ actor ImageExporter {
         }
     }
 
+    /// The document as a Photoshop file, its merged image flattened here.
+    func photoshopData(_ snapshot: ProjectSnapshot) throws -> PSDWriter.Output {
+        try PSDWriter.encode(snapshot, composite: render(snapshot).image)
+    }
+
     func pngData(_ snapshot: ProjectSnapshot) throws -> Data {
         try pngData(render(snapshot))
     }

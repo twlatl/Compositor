@@ -10,6 +10,8 @@ extension UTType {
     static let compositorProject = UTType(importedAs: "com.compositor.project", conformingTo: .package)
     /// What the Open panels offer.
     static let openableProjects: [UTType] = [.pixelBoxProject, .compositorProject]
+    /// What File › Open offers: projects, and Photoshop files, which open in a tab of their own.
+    static let openableDocuments: [UTType] = openableProjects + [.photoshopImage, .photoshopLargeImage]
     nonisolated static let photoshopImage = UTType(importedAs: "com.adobe.photoshop-image")
     nonisolated static let photoshopLargeImage = UTType(importedAs: "com.adobe.photoshop-large-image")
     static let importableImages: [UTType] = [.jpeg, .png, .heic, .heif, .tiff, .webP, .openEXR, .radianceHDR, .photoshopImage,
