@@ -138,7 +138,7 @@ struct NativeLayerList: NSViewRepresentable {
 
             // 3. Delete Layer / Delete Selected Layers
             let deleteTitle: String
-            if session.isMaskSelected && session.activeLayer?.mask != nil {
+            if session.isMaskSelected, let layer = session.activeLayer, session.selectedMask(for: layer) != nil {
                 deleteTitle = "Delete Mask"
             } else if session.selectedLayerIDs.count > 1 {
                 deleteTitle = "Delete Selected Layers"
@@ -854,8 +854,8 @@ private final class LayerCell: NSTableCellView, NSTextFieldDelegate {
     private let thumbnail = LayerThumbnailButton()
     private let maskThumbnail = LayerThumbnailButton()
     private let disabledMaskMark = MaskDisabledMark(labelWithString: "╱")
-    /// "16-Bit" or "HDR" after the size of a layer keeping more than 8 bits a channel (`DeepLayer`); gone once it's
-    /// rasterized to 8.
+    /// "GIF" after the size of an animated layer, or "16-Bit" or "HDR" after that of a layer keeping more than 8 bits a
+    /// channel (`DeepLayer`), gone once it's rasterized to 8.
     private let depthTag = LayerTag()
     /// Holds the tag inside the row while it shows; hidden, it gives its room back to the size.
     private var depthTagFits: NSLayoutConstraint!
@@ -1073,8 +1073,9 @@ private final class LayerCell: NSTableCellView, NSTextFieldDelegate {
         if !renaming { nameLabel.stringValue = (layer.maskSourceID == nil ? "" : "↳ ") + layer.name }
         dimensions.stringValue = layer.liveText != nil ? "Text · Double-click to edit" : layer.adjustment != nil ? "Adjustment · Double-click to edit" : layer.isGroup ? "Folder" : layer.sizeLabel
         depthTag.text = layer.depthLabel ?? ""
-        depthTag.toolTip = layer.asset?.isHDR == true ? "HDR layer: keeps light brighter than white, shown as white"
-                                                      : "16-bit layer: keeps 16 bits a channel"
+        depthTag.toolTip = layer.gifAnimation != nil ? "Animated GIF: select it to show its frames under the canvas"
+            : layer.asset?.isHDR == true ? "HDR layer: keeps light brighter than white, shown as white"
+            : "16-bit layer: keeps 16 bits a channel"
         depthTag.isHidden = layer.depthLabel == nil || layer.maskSourceID != nil
         depthTagFits.isActive = !depthTag.isHidden
         if let source = layer.maskSourceID {
@@ -1508,9 +1509,10 @@ extension ImageLayer {
         return text + " · " + percent.formatted(.number.precision(.fractionLength(0...1))) + "%"
     }
 
-    /// The tag after the size of a layer keeping 16 bits a channel, or light brighter than white (`DeepLayer`); nil
-    /// once it's rasterized to 8.
+    /// The tag after the size of an animated GIF layer, or of a layer keeping 16 bits a channel or light brighter than
+    /// white (`DeepLayer`), which goes once it's rasterized to 8.
     var depthLabel: String? {
+        if gifAnimation != nil { return "GIF" }
         guard let asset, asset.deep != nil, liveText == nil, adjustment == nil, !isGroup else { return nil }
         return asset.isHDR ? "HDR" : "16-Bit"
     }
