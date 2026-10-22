@@ -8,7 +8,6 @@ struct ContentView: View {
     @AppStorage("colorPalette.visible") private var showsColorPalette = true
     @Bindable var session: EditorSession
     var applicationDelegate: PixelBoxApplicationDelegate? = nil
-    @Environment(\.openWindow) private var openWindow
     @State private var canvasFrame: CGRect = .zero
     @State private var levelsPanel = FloatingPanelController(name: "levelsPanel")
     @State private var adjustmentPanel = FloatingPanelController(name: "adjustmentPanel")
@@ -17,12 +16,13 @@ struct ContentView: View {
     @State private var filterPanel = FloatingPanelController(name: "filterPanel")
     @State private var effectsPanel = FloatingPanelController(name: "effectsPanel")
     @State private var isDropTargeted = false
-    /// The window's width, so the tab strip can use the toolbar's free space.
-    @State private var windowWidth: CGFloat = 1180
-    /// A layer dragged from this canvas's own tab has nowhere to go, so the canvas doesn't light up for it.
+    /// This window's project, among the workspace's.
+    private var tab: ProjectTab? { applicationDelegate?.workspace.tabs.first { $0.session === session } }
+    private var projects: ProjectController? { tab?.controller ?? applicationDelegate?.projects }
+    /// A layer dragged from this canvas's own project has nowhere to go, so the canvas doesn't light up for it.
     private var acceptsDrop: Bool {
-        guard let workspace = applicationDelegate?.workspace else { return true }
-        return workspace.canReceiveDrag(into: workspace.current.id)
+        guard let workspace = applicationDelegate?.workspace, let tab else { return true }
+        return workspace.canReceiveDrag(into: tab.id)
     }
     // Extracted from `body`: as one expression the type checker times out (Xcode 26.1).
     @ViewBuilder private var toolHeaders: some View {
@@ -141,7 +141,6 @@ struct ContentView: View {
                 Divider()
                 // Keeps its own height however short the window gets; the tools scroll instead.
                 statusBar.fixedSize(horizontal: false, vertical: true)
-                    .modifier(WidthReader(width: $windowWidth))
             }
         }
     }
@@ -165,10 +164,9 @@ struct ContentView: View {
                     from: CGPoint(x: location.x - canvasFrame.minX, y: location.y - canvasFrame.minY),
                     documentSize: document.size)
             } else { point = nil }
-            if let workspace = applicationDelegate?.workspace {
-                let destination = workspace.current.id
-                guard workspace.canSwitch, workspace.canReceiveDrag(into: destination) else { return false }
-                Task { await workspace.receiveProviders(providers, into: destination, at: point) }
+            if let workspace = applicationDelegate?.workspace, let tab {
+                guard workspace.isIdle(tab), workspace.canReceiveDrag(into: tab.id) else { return false }
+                Task { await workspace.receiveProviders(providers, into: tab.id, at: point) }
             } else {
                 Task { await ImageFileDrop.importProviders(providers, into: session, at: point) }
             }
@@ -182,13 +180,13 @@ struct ContentView: View {
                     .allowsHitTesting(false)
             }
         }
-        .onAppear { applicationDelegate?.showEditor = { openWindow(id: "editor") } }
         .preferredColorScheme(.dark)
         // Canvas Only (F): the canvas runs up under where the title bar was, so no gray strip is left across the top.
         // The toolbar itself is hidden and shown by the window (see `toggleCanvasOnly`), which lays its buttons out
-        // again properly; hidden here instead, it came back with the tabs over the window buttons.
+        // again properly; hidden here instead, it came back over the window buttons.
         .ignoresSafeArea(.container, edges: session.canvasOnly ? .top : [])
-        .navigationTitle(session.projectURL?.deletingPathExtension().lastPathComponent ?? "Untitled")
+        // The window's title, which is also what its tab shows.
+        .navigationTitle(tab?.title ?? session.projectURL?.deletingPathExtension().lastPathComponent ?? "Untitled")
         .toolbar {
             ToolbarItem(placement: .navigation) {
                 Button { requestNewCanvas() } label: { Label("New canvas", systemImage: "plus") }
@@ -196,20 +194,6 @@ struct ContentView: View {
                     .disabled(session.isImporting || session.showsBusy || session.levels != nil)
                     .modifier(NewProjectDropTarget(workspace: applicationDelegate?.workspace))
             }
-            ToolbarSpacer(.fixed, placement: .navigation)
-            if let workspace = applicationDelegate?.workspace {
-                ToolbarItem(placement: .navigation) {
-                    ProjectTabStrip(workspace: workspace)
-                        // As wide as the toolbar allows: the window less the traffic lights and New button before it
-                        // and the zoom controls after it. Bounded, so adding tabs never pushes those aside; the
-                        // strip scrolls instead.
-                        .frame(width: max(200, windowWidth - 352), height: 34, alignment: .center)
-                }
-                .sharedBackgroundVisibility(.hidden)
-            }
-            // Absorb all remaining navigation-toolbar width before the zoom controls.
-            // Without this spacer, the growing tab strip pushes the primary actions left.
-            ToolbarSpacer(.flexible, placement: .navigation)
             ToolbarItem(placement: .primaryAction) {
                 Button("Fit") { session.fit() }.help("Fit canvas in window (⌘0)")
                     .accessibilityIdentifier("fitCanvas").disabled(session.document == nil)
@@ -315,7 +299,7 @@ struct ContentView: View {
             } message: { Text(session.cropError ?? "") }
     }
     private func requestNewCanvas() {
-        if let applicationDelegate { Task { await applicationDelegate.projects.newCanvas() } }
+        if let projects { Task { await projects.newCanvas() } }
         else { session.clearProject() }
     }
     private var toolRail: some View {
@@ -355,7 +339,7 @@ struct ContentView: View {
     private var welcome: some View {
         NewCanvasSheet(session: session,
             onCreate: { session.createNewProject(width: $0, height: $1, resolution: $2, background: $3) },
-            onOpen: { Task { await applicationDelegate?.projects.open() } })
+            onOpen: { Task { await projects?.open() } })
     }
     private var statusBar: some View {
         HStack(spacing: 16) {
@@ -492,13 +476,5 @@ extension View {
                 active ? stepper.listen(step: step) : stepper.stopListening()
             }
             .onDisappear { stepper.stopListening() }
-    }
-}
-
-/// Reports the width it is laid out at. Kept out of the editor's body, whose type-checking is already near its limit.
-private struct WidthReader: ViewModifier {
-    @Binding var width: CGFloat
-    func body(content: Content) -> some View {
-        content.onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
     }
 }

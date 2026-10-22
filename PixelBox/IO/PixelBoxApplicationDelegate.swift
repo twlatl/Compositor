@@ -5,7 +5,8 @@ final class PixelBoxApplicationDelegate: NSObject, NSApplicationDelegate {
     let workspace = ProjectWorkspace()
     var session: EditorSession { workspace.current.session }
     var projects: ProjectController { workspace.current.controller }
-    var showEditor: (() -> Void)?
+    /// The projects' windows, grouped as native tabs.
+    private(set) lazy var windows = ProjectWindows(applicationDelegate: self)
     /// Checks the update feed and installs new versions (Sparkle), offering each one with what's new listed in it.
     /// Started only after launch: its first-run prompt, shown during launch, kept the editor window from ever opening.
     private let updateDriver = UpdateDriver()
@@ -18,26 +19,18 @@ final class PixelBoxApplicationDelegate: NSObject, NSApplicationDelegate {
 
     // Finder Open With and Dock drops, including files delivered during launch.
     func application(_ application: NSApplication, open urls: [URL]) {
-        // Reopening a window that's already showing makes SwiftUI rebuild it, so the app blinks out and back:
-        // only a closed editor is reopened.
-        if !application.windows.contains(where: { $0.isVisible && $0.identifier?.rawValue.hasPrefix("editor") == true }) {
-            if let showEditor { showEditor() }
-            // Launched to open a file, SwiftUI makes no window, and the editor that would set `showEditor` never
-            // appears. A Dock click's reopen event makes the window, so the app sends itself one once launched.
-            else { DispatchQueue.main.async { Self.reopen() } }
-        }
+        showEditor()
         application.activate()
         Task { await workspace.receive(urls) }
     }
 
-    private static func reopen() {
-        let event = NSAppleEventDescriptor(eventClass: AEEventClass(kCoreEventClass), eventID: AEEventID(kAEReopenApplication),
-                                           targetDescriptor: .currentProcess(), returnID: AEReturnID(kAutoGenerateReturnID),
-                                           transactionID: AETransactionID(kAnyTransactionID))
-        _ = try? event.sendEvent(options: .noReply, timeout: 1)
+    /// The front project's window, made again if it was closed.
+    func showEditor() {
+        windows.show(workspace.current, beside: nil)
     }
 
     func applicationWillFinishLaunching(_ notification: Notification) {
+        workspace.presenter = windows
         // AppKit's own switches for two of the Edit menu's text extras (see `removeSystemExtras`).
         UserDefaults.standard.register(defaults: ["NSDisabledDictationMenuItem": true, "NSDisabledCharacterPaletteMenuItem": true])
         // Always dark, alerts and open/save panels included, whatever the Mac is set to.
@@ -47,6 +40,8 @@ final class PixelBoxApplicationDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // Unless a file opened during launch has already put one up.
+        showEditor()
         // macOS adds Writing Tools, AutoFill, Start Dictation and Emoji & Symbols to the Edit menu; they're for typing
         // text, not editing images, and only got in the way. It adds Enter Full Screen (Globe-F) to the View menu,
         // beside Canvas Only (F), which does the same job without the slow slide into a new space. Taken out once the menus exist, and again whenever the
@@ -190,7 +185,7 @@ final class PixelBoxApplicationDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
-        if !flag { showEditor?() }
+        if !flag { showEditor() }
         return true
     }
 
