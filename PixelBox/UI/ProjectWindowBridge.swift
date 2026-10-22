@@ -9,7 +9,6 @@ struct ProjectWindowBridge: NSViewRepresentable {
         view.update(controller)
         view.window?.representedURL = controller.session.projectURL
         view.window?.isDocumentEdited = controller.session.isModified
-        view.window?.titleVisibility = .hidden
     }
 }
 
@@ -26,14 +25,12 @@ final class ProjectWindowView: NSView {
         self.controller = controller
         proxy.controller = controller
         controller.window = window
-        controller.workspace?.window = window
     }
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         DispatchQueue.main.async { [weak self] in
             guard let self, let window = self.window else { return }
             self.controller.window = window
-            self.controller.workspace?.window = window
             if window.delegate !== self.proxy {
                 self.proxy.previous = window.delegate
                 window.delegate = self.proxy
@@ -47,10 +44,7 @@ private final class ProjectWindowDelegate: NSObject, NSWindowDelegate {
     weak var controller: ProjectController?
     func windowShouldClose(_ sender: NSWindow) -> Bool {
         guard let controller else { return true }
-        Task {
-            if let workspace = controller.workspace { await workspace.closeWindow(sender) }
-            else { await controller.close(sender) }
-        }
+        Task { await controller.close(sender) }
         return false
     }
     override func responds(to selector: Selector!) -> Bool {

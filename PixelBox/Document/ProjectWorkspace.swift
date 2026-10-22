@@ -16,15 +16,33 @@ final class ProjectTab: Identifiable {
     }
 }
 
+/// Puts projects on screen: each in a window of its own, grouped as native macOS tabs. The workspace decides which
+/// project goes where; this makes and closes the windows. Absent in tests, where projects never reach the screen.
+@MainActor
+protocol ProjectWindowPresenting: AnyObject {
+    /// Brings the tab's window to the front, first making it: as a tab beside `neighbor`'s window, or a window of its
+    /// own when `neighbor` is nil.
+    func show(_ tab: ProjectTab, beside neighbor: ProjectTab?)
+    /// Closes the tab's window, without asking anything: the workspace has already asked.
+    func close(_ tab: ProjectTab)
+    /// Whether the tab has a window yet (or still): a tab in a group counts, shown or not.
+    func hasWindow(_ tab: ProjectTab) -> Bool
+}
+
+/// Every open project, in whichever window or tab it's shown. Copying layers between projects, Paste of a copied
+/// layer and the menus (which act on `current`) work across all of them.
 @MainActor @Observable
 final class ProjectWorkspace {
     private(set) var tabs: [ProjectTab] = []
+    /// The project in the main window: the one the menus act on.
     private(set) var selectedID: UUID
     var isManaging = false
-    @ObservationIgnored weak var window: NSWindow?
+    @ObservationIgnored weak var presenter: ProjectWindowPresenting?
     var current: ProjectTab { tabs.first { $0.id == selectedID } ?? tabs[0] }
-    var canSwitch: Bool {
-        let s = current.session
+    /// Whether a project is free for the workspace to work on: nothing of the workspace's own running (an Open panel,
+    /// Quit's questions), and nothing in progress in it that a close or a drop would cut across.
+    func isIdle(_ tab: ProjectTab) -> Bool {
+        let s = tab.session
         return !isManaging && s.canStartProjectOperation && s.hueSaturation == nil && s.filterEdit == nil
             && s.gradientEdit == nil && s.pixelMove == nil && s.colorPicker == nil
     }
@@ -41,42 +59,52 @@ final class ProjectWorkspace {
         guard taken.contains("Untitled") else { return "Untitled" }
         return (2...).lazy.map { "Untitled \($0)" }.first { !taken.contains($0) }!
     }
-    /// Whether a tab can close: not the only one while it's empty, the blank start it would only be replaced with.
-    func canClose(_ tab: ProjectTab) -> Bool {
-        !(tabs.count == 1 && tab.session.document == nil && tab.session.projectURL == nil)
+    /// The only project, still blank: what a file opened or dropped goes into rather than a tab of its own.
+    private var blankStart: ProjectTab? {
+        tabs.count == 1 && current.session.document == nil && current.session.projectURL == nil ? current : nil
     }
+    private func append(_ tab: ProjectTab, beside neighbor: ProjectTab?) {
+        tab.controller.workspace = self
+        tabs.append(tab); selectedID = tab.id
+        presenter?.show(tab, beside: neighbor)
+    }
+    /// The blank project left when the last window closed, waiting for one: what File › New puts up again.
+    private var windowlessBlank: ProjectTab? {
+        blankStart.flatMap { presenter?.hasWindow($0) == false ? $0 : nil }
+    }
+    /// A blank project in a new tab of the front window, or the blank start itself when that's all there is.
     @discardableResult
     func addTab(reuseEmpty: Bool = true) -> ProjectTab {
-        if reuseEmpty, tabs.count == 1, current.session.document == nil { return current }
+        if reuseEmpty, let blank = blankStart { presenter?.show(blank, beside: nil); return blank }
         let tab = ProjectTab(name: freeUntitledName)
-        tab.controller.workspace = self; tab.controller.window = window
-        tabs.append(tab); selectedID = tab.id
+        append(tab, beside: current)
         return tab
     }
-    /// Reorders a tab by dragging it in the strip. Chrome, not a document edit, so it never touches undo.
-    /// `index` is where the tab should land in the final order, clamped to the array's bounds.
-    func moveTab(_ id: UUID, to index: Int) {
-        guard let from = tabs.firstIndex(where: { $0.id == id }) else { return }
-        let target = min(max(0, index), tabs.count - 1)
-        guard target != from else { return }
-        let tab = tabs.remove(at: from)
-        tabs.insert(tab, at: target)
+    /// File › New Window: a blank project in a window of its own rather than a tab.
+    func newWindow() {
+        guard !isManaging else { return }
+        if let blank = windowlessBlank { presenter?.show(blank, beside: nil); return }
+        append(ProjectTab(name: freeUntitledName), beside: nil)
     }
+    /// Brings a project's window to the front, which also makes it the one the menus act on.
     func select(_ id: UUID) {
-        guard id != selectedID, canSwitch, tabs.contains(where: { $0.id == id }) else { return }
-        current.session.commitTransform()
+        guard let tab = tabs.first(where: { $0.id == id }) else { return }
         selectedID = id
-        current.controller.window = window
-        current.controller.resumeExternalChangeCheck()
+        presenter?.show(tab, beside: nil)
+    }
+    /// A project's window became the main window: by a click on its tab, ⌃Tab, the Window menu or anything else.
+    func activate(_ controller: ProjectController) {
+        guard let tab = tabs.first(where: { $0.controller === controller }) else { return }
+        if selectedID != tab.id { selectedID = tab.id }
+        tab.controller.resumeExternalChangeCheck()
     }
     func newCanvas() {
-        guard canSwitch else { return }
-        current.session.commitTransform()
-        _ = addTab(reuseEmpty: false)
+        guard !isManaging else { return }
+        _ = addTab(reuseEmpty: windowlessBlank != nil)
     }
     @discardableResult
     func open(_ suppliedURL: URL? = nil) async -> Bool {
-        guard canSwitch else { return false }
+        guard !isManaging else { return false }
         isManaging = true
         defer { isManaging = false }
         var urls = suppliedURL.map { [$0] } ?? []
@@ -85,7 +113,8 @@ final class ProjectWorkspace {
             panel.allowedContentTypes = UTType.openableProjects
             panel.allowsMultipleSelection = true
             panel.treatsFilePackagesAsDirectories = false
-            let response = if let window { await panel.beginSheetModal(for: window) } else { await panel.begin() }
+            let window = current.controller.window
+            let response = if let window, window.isVisible { await panel.beginSheetModal(for: window) } else { await panel.begin() }
             guard response == .OK else { return false }
             urls = panel.urls
         }
@@ -95,32 +124,44 @@ final class ProjectWorkspace {
     }
     private func loadProject(_ url: URL) async -> Bool {
         if let existing = tabs.first(where: { $0.session.projectURL?.resolvingSymlinksInPath() == url.resolvingSymlinksInPath() }) {
-            selectedID = existing.id; return true
+            select(existing.id); return true
         }
         // Load into an unattached session, so a failed open never leaves a broken tab.
         let tab = ProjectTab(name: url.deletingPathExtension().lastPathComponent)
-        tab.controller.window = window
+        tab.controller.window = current.controller.window
         guard await tab.controller.open(url) else { return false }
-        if tabs.count == 1, current.session.document == nil { tabs.removeAll() }
-        tab.controller.workspace = self; tabs.append(tab); selectedID = tab.id
+        // Into the blank start's place: a tab beside it, then the blank one closed, so it's as if it had been replaced.
+        let blank = blankStart
+        append(tab, beside: blank ?? current)
+        if let blank { removeTab(blank.id) }
         return true
     }
+    /// Closes a project's tab (or window), first settling what's in progress in it as Quit does, then asking about
+    /// unsaved changes.
     func close(_ id: UUID) async {
-        guard canSwitch, let tab = tabs.first(where: { $0.id == id }), canClose(tab) else { return }
+        guard !isManaging, let tab = tabs.first(where: { $0.id == id }) else { return }
+        if tab.session.textDraft != nil { guard tab.session.finishText() else { return } }
+        await settlePendingEdits(in: tab)
+        guard isIdle(tab) else { NSSound.beep(); return }
         isManaging = true
         defer { isManaging = false }
-        tab.controller.window = window
         guard await tab.controller.confirmQuit() else { return }
         removeTab(id)
     }
+    /// Takes a project out and closes its window. With the last one gone a blank project waits, windowless, for the
+    /// window the Dock or File › New brings back.
     func removeTab(_ id: UUID) {
         guard let index = tabs.firstIndex(where: { $0.id == id }) else { return }
-        tabs.remove(at: index)
-        if tabs.isEmpty { _ = addTab(reuseEmpty: false) }
-        else if selectedID == id { selectedID = tabs[min(index, tabs.count-1)].id }
+        let tab = tabs.remove(at: index)
+        presenter?.close(tab)
+        if tabs.isEmpty {
+            let blank = ProjectTab(name: "Untitled")
+            blank.controller.workspace = self
+            tabs = [blank]; selectedID = blank.id
+        } else if selectedID == id { selectedID = tabs[min(index, tabs.count-1)].id }
     }
-    /// The order Quit (and closing the window) asks about unsaved projects: the tab on screen first,
-    /// then the rest left to right, so it never jumps to another project before the one you're viewing.
+    /// The order Quit asks about unsaved projects: the one on screen first, then the rest in the order they were
+    /// opened, so it never jumps to another project before the one you're viewing.
     var quitOrder: [ProjectTab] { [current] + tabs.filter { $0.id != current.id } }
     private func finishTextEditing() -> Bool {
         for tab in quitOrder where tab.session.textDraft != nil {
@@ -128,12 +169,12 @@ final class ProjectWorkspace {
         }
         return true
     }
-    /// Readies the project on screen for quitting or closing, rather than refusing over what's in progress. Edits on
-    /// the canvas (a gradient waiting for Apply, pixels being moved) are applied, as switching tools does; an open dialog
-    /// (a filter, Levels, Hue/Saturation, the color picker…) is cancelled, as its Cancel button would, so nothing is
+    /// Readies a project for quitting or closing, rather than refusing over what's in progress. Edits on the canvas
+    /// (a gradient waiting for Apply, pixels being moved) are applied, as switching tools does; an open dialog (a
+    /// filter, Levels, Hue/Saturation, the color picker…) is cancelled, as its Cancel button would, so nothing is
     /// applied that wasn't OK'd.
-    func settlePendingEdits() async {
-        let session = current.session
+    func settlePendingEdits(in tab: ProjectTab) async {
+        let session = tab.session
         if session.gradientEdit != nil { await session.commitGradient() }
         if session.pixelMove != nil { await session.finishPixelMove() }
         session.cancelFilter()
@@ -146,19 +187,17 @@ final class ProjectWorkspace {
     }
     func confirmQuit() async -> Bool {
         guard !isManaging, finishTextEditing() else { return false }
-        await settlePendingEdits()
-        guard canSwitch else { NSSound.beep(); return false }
+        for tab in quitOrder {
+            await settlePendingEdits(in: tab)
+            guard isIdle(tab) else { NSSound.beep(); return false }
+        }
         isManaging = true; defer { isManaging = false }
         for tab in quitOrder {
-            selectedID = tab.id; tab.controller.window = window
+            // Its window to the front, so the question about it is asked where it can be seen.
+            select(tab.id)
             guard await tab.controller.confirmQuit() else { return false }
         }
         return true
-    }
-    func closeWindow(_ window: NSWindow) async {
-        guard await confirmQuit() else { return }
-        tabs.removeAll(); _ = addTab(reuseEmpty: false)
-        window.close()
     }
 
     /// Capture the destination before asynchronous provider loading. Dock/new-tab
@@ -166,7 +205,7 @@ final class ProjectWorkspace {
     func receive(_ urls: [URL], into destination: UUID? = nil, at point: CGPoint? = nil) async {
         let files = urls.map { ($0, $0.startAccessingSecurityScopedResource()) }
         defer { for (url, scoped) in files where scoped { url.stopAccessingSecurityScopedResource() } }
-        while !canSwitch {
+        while isManaging || destination.flatMap({ id in tabs.first { $0.id == id } }).map({ !isIdle($0) }) == true {
             if Task.isCancelled { return }
             try? await Task.sleep(for: .milliseconds(30))
         }
@@ -178,7 +217,7 @@ final class ProjectWorkspace {
                 guard let existing = tabs.first(where: { $0.id == destination }) else { continue }
                 tab = existing
             } else { tab = addTab() }
-            selectedID = tab.id
+            select(tab.id)
             await tab.session.importImages([url], at: point)
         }
     }
@@ -220,7 +259,7 @@ final class ProjectWorkspace {
     /// Copies layers (folders with all they hold) into another project, or a new one, as one undo step there. Several
     /// keep where they sit relative to each other, centered on `point` or the canvas as a whole.
     func copyLayers(_ ids: [UUID], into destination: UUID?, at point: CGPoint? = nil) async {
-        guard let id = ids.first, canSwitch, let sourceTab = tabs.first(where: { $0.session.document?.layers.contains(where: { $0.id == id }) == true }),
+        guard let id = ids.first, !isManaging, let sourceTab = tabs.first(where: { $0.session.document?.layers.contains(where: { $0.id == id }) == true }),
               sourceTab.session.canEditLayers, let snapshot = sourceTab.session.projectSnapshot(),
               let sourceDocument = sourceTab.session.document else { return }
         if let destination, destination == sourceTab.id { return }
@@ -284,7 +323,7 @@ final class ProjectWorkspace {
             target.session.activeLayerID = mapping[id]
             target.session.selectedLayerIDs = Set(ids.compactMap { mapping[$0] })
             target.session.endEdit()
-            selectedID = target.id
+            select(target.id)
         } catch { target.session.importError = error.localizedDescription }
     }
 }

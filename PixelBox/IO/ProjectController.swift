@@ -320,7 +320,10 @@ final class ProjectController {
 
     func close(_ window: NSWindow) async {
         if let workspace, let tab = workspace.tabs.first(where: { $0.controller === self }) {
-            await workspace.close(tab.id); return
+            await workspace.close(tab.id)
+            // Closed: its window too, should nothing on screen have closed it already.
+            if !workspace.tabs.contains(where: { $0 === tab }) { window.close() }
+            return
         }
         guard begin() else { return }
         let proceed = await confirmReplacement()

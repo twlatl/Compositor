@@ -8,20 +8,10 @@ struct PixelBoxApp: App {
     @AppStorage("navigator.visible") private var showsNavigator = false
     private var session: EditorSession { applicationDelegate.session }
     var body: some Scene {
-        Window("PixelBox", id: "editor") {
-            ProjectWorkspaceView(applicationDelegate: applicationDelegate).roundedControls()
-        }
-            .defaultSize(width: 1180, height: 780)
-            // Files opened from Finder or dropped on the Dock icon go to the app delegate, which imports them into
-            // the open window. Left to SwiftUI, each one builds a throwaway window and fades the editor out and back.
-            .handlesExternalEvents(matching: [])
-            // A first launch fills the screen (without going full screen); after that macOS reopens the window at the
-            // size it was left.
-            .defaultWindowPlacement { _, context in
-                WindowPlacement(size: context.defaultDisplay.visibleRect.size)
-            }
-            // The project's name is already on its tab, so the toolbar doesn't repeat it as a window title.
-            .windowToolbarStyle(.unifiedCompact(showsTitle: false))
+        // Projects open in windows of their own, grouped as native tabs, made by the app delegate (see ProjectWindows):
+        // a SwiftUI window scene can't be told to open each one as a tab. This scene is only for the menus; it has
+        // nothing to set, and its Settings item is taken out below.
+        Settings { EmptyView() }
             .commands {
                 CommandGroup(replacing: .undoRedo) {
                     // Dialog text fields keep native text undo; document history
@@ -47,20 +37,18 @@ struct PixelBoxApp: App {
                     }
                 }
                 CommandGroup(replacing: .newItem) {
-                    Button("New Canvas…") {
-                        applicationDelegate.showEditor?()
-                        Task { await applicationDelegate.projects.newCanvas() }
-                    }.configuredKeyboardShortcut("n")
-                        .disabled(!applicationDelegate.projects.canStart)
-                    Button("Open Project…") {
-                        applicationDelegate.showEditor?()
-                        Task { await applicationDelegate.projects.open() }
-                    }
+                    // In a new tab of the front window; the tab bar's + does the same.
+                    Button("New Canvas…") { applicationDelegate.workspace.newCanvas() }
+                        .configuredKeyboardShortcut("n")
+                        .disabled(applicationDelegate.workspace.isManaging)
+                    Button("New Window") { applicationDelegate.workspace.newWindow() }
+                        .configuredKeyboardShortcut("n", modifiers: [.command, .option])
+                        .disabled(applicationDelegate.workspace.isManaging)
+                    Button("Open Project…") { Task { await applicationDelegate.projects.open() } }
                         .configuredKeyboardShortcut("o").disabled(!applicationDelegate.projects.canStart)
                     Menu("Open Recent") {
                         ForEach(RecentProjects.shared.urls, id: \.self) { url in
                             Button(url.deletingPathExtension().lastPathComponent) {
-                                applicationDelegate.showEditor?()
                                 Task { await applicationDelegate.projects.open(url) }
                             }
                         }
@@ -102,6 +90,7 @@ struct PixelBoxApp: App {
                     CommandGroup(after: .appInfo) {
                         Button("Check for Updates…") { applicationDelegate.updater.checkForUpdates() }
                     }
+                    CommandGroup(replacing: .appSettings) {}
                     CommandGroup(after: .toolbar) {
                         Button("Search Commands…") {
                             CommandPaletteController.shared.toggle(session: session, over: applicationDelegate.projects.window)
