@@ -6,6 +6,7 @@ import Sparkle
 struct PixelBoxApp: App {
     @NSApplicationDelegateAdaptor(PixelBoxApplicationDelegate.self) private var applicationDelegate
     @AppStorage("navigator.visible") private var showsNavigator = false
+    @AppStorage("colorPalette.visible") private var showsColorPalette = true
     private var session: EditorSession { applicationDelegate.session }
     var body: some Scene {
         // Projects open in windows of their own, grouped as native tabs, made by the app delegate (see ProjectWindows):
@@ -121,6 +122,7 @@ struct PixelBoxApp: App {
                         }
                             .configuredKeyboardShortcut("-").disabled(session.document == nil)
                         Toggle("Navigator (300% and above)", isOn: $showsNavigator)
+                        Toggle("Color and Swatches", isOn: $showsColorPalette)
                         Toggle("Pixel Grid (800% and above)", isOn: Binding(get: { session.showsPixelGrid },
                                                                               set: { session.showsPixelGrid = $0 }))
                         Toggle("Show Transform Controls", isOn: Binding(get: { session.showsTransformControls },

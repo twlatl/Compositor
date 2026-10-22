@@ -17,7 +17,7 @@ actor ImageResizer {
         let old = snapshot.manifest
         var manifest = ProjectManifest(resolution: options.resolution, documentID: old.documentID,
             width: options.width, height: options.height, activeLayerID: old.activeLayerID, layers: [],
-            guides: old.guides)
+            guides: old.guides, swatchGroups: old.swatchGroups)
         if old.width == options.width && old.height == options.height {
             manifest.layers = old.layers
             return ProjectSnapshot(manifest: manifest, images: snapshot.images, masks: snapshot.masks)
@@ -114,7 +114,8 @@ extension EditorSession {
         beginEdit(actionName)
         let m = snapshot.manifest
         document = CanvasDocument(id: m.documentID, width: m.width, height: m.height,
-            layers: snapshot.documentLayers, resolution: m.resolution ?? 72, guides: m.guides ?? [])
+            layers: snapshot.documentLayers, resolution: m.resolution ?? 72, guides: m.guides ?? [],
+            swatchGroups: m.swatchGroups)
         endEdit()
         viewport.fit(documentSize: document!.size)
     }

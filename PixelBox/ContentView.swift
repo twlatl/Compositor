@@ -5,6 +5,7 @@ struct ContentView: View {
     /// The Layers panel's width, remembered across launches.
     @AppStorage("layersPanelWidth") private var layersPanelWidth = 252.0
     @AppStorage("navigator.visible") private var showsNavigator = false
+    @AppStorage("colorPalette.visible") private var showsColorPalette = true
     @Bindable var session: EditorSession
     var applicationDelegate: PixelBoxApplicationDelegate? = nil
     @State private var canvasFrame: CGRect = .zero
@@ -124,7 +125,16 @@ struct ContentView: View {
                 if !session.canvasOnly {
                     PanelResizeEdge(width: $layersPanelWidth, range: LayersPanel.widths)
                     // Clamped: a width saved when the panel could go narrower is brought into range.
-                    LayersPanel(session: session, width: min(LayersPanel.widths.upperBound, max(LayersPanel.widths.lowerBound, layersPanelWidth)))
+                    let panelWidth = min(LayersPanel.widths.upperBound, max(LayersPanel.widths.lowerBound, layersPanelWidth))
+                    VStack(spacing: 0) {
+                        if showsColorPalette {
+                            ColorSwatchesPanel(session: session, width: panelWidth)
+                            Divider()
+                        }
+                        LayersPanel(session: session, width: panelWidth)
+                    }
+                    // The divider between the panels would otherwise take all the width it's offered.
+                    .frame(width: panelWidth)
                 }
             }
             if !session.canvasOnly {

@@ -515,10 +515,18 @@ nonisolated enum PSDAdjustments {
         offset += 2
         guard version == 1 || version == 4 else { return nil }
         guard offset + 2 <= data.count else { return nil }
-        let count = Int(u16(data, offset))
+        // Photoshop's adjustment layers give a 32-bit bitmap of the channels present (RGB, red, green, blue…) where the
+        // Curves file format has a 16-bit count; a zero high half followed by a nonzero low half is the bitmap.
+        var channels = Array(0..<Int(u16(data, offset)))
         offset += 2
+        if channels.isEmpty, offset + 2 <= data.count {
+            let bitmap = Int(u16(data, offset))
+            offset += 2
+            channels = (0..<16).filter { bitmap & (1 << $0) != 0 }
+        }
         var settings = CurvesSettings()
-        for channel in 0..<min(4, count) {
+        for channel in channels {
+            guard channel < 4 else { break }
             guard offset + 2 <= data.count else { return nil }
             let points = Int(u16(data, offset))
             offset += 2

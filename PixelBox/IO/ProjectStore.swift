@@ -10,6 +10,8 @@ extension UTType {
     static let compositorProject = UTType(importedAs: "com.compositor.project", conformingTo: .package)
     /// What the Open panels offer.
     static let openableProjects: [UTType] = [.pixelBoxProject, .compositorProject]
+    /// What File › Open offers: projects, and Photoshop files, which open in a tab of their own.
+    static let openableDocuments: [UTType] = openableProjects + [.photoshopImage, .photoshopLargeImage]
     nonisolated static let photoshopImage = UTType(importedAs: "com.adobe.photoshop-image")
     nonisolated static let photoshopLargeImage = UTType(importedAs: "com.adobe.photoshop-large-image")
     static let importableImages: [UTType] = [.jpeg, .png, .heic, .heif, .tiff, .webP, .openEXR, .radianceHDR, .photoshopImage,
@@ -22,7 +24,7 @@ extension UTType {
 
 nonisolated struct ProjectManifest: Codable, Sendable {
     /// The format version new saves write.
-    static let current = 15
+    static let current = 16
     /// Every version `load` accepts. The package-header check, the manifest check and the error
     /// message all read this, so they cannot drift apart when `current` is bumped.
     static let supported = 1...ProjectManifest.current
@@ -45,6 +47,8 @@ nonisolated struct ProjectManifest: Codable, Sendable {
     var layers: [ProjectLayerRecord]
     /// Alignment guides. Missing on versions 1–7.
     var guides: [CanvasGuide]? = nil
+    /// The Swatches palette's folders. Missing on versions 1–15, and whenever the project shows the defaults.
+    var swatchGroups: [SwatchGroup]? = nil
 }
 
 nonisolated struct ProjectLayerRecord: Codable, Sendable {
@@ -275,6 +279,7 @@ actor ProjectStore {
         }
         if let id = manifest.activeLayerID, !ids.contains(id) { throw ProjectError.invalid }
         try validateGuides(manifest)
+        try validateSwatches(manifest)
     }
 
     private func validateGuides(_ manifest: ProjectManifest) throws {
@@ -290,6 +295,14 @@ actor ProjectStore {
                 throw ProjectError.invalid
             }
         }
+    }
+
+    private func validateSwatches(_ manifest: ProjectManifest) throws {
+        guard let groups = manifest.swatchGroups else { return }
+        guard manifest.version >= 16 else { throw ProjectError.invalid }
+        guard groups.count <= SwatchGroup.maxGroups,
+              groups.reduce(0, { $0 + $1.swatches.count }) <= SwatchGroup.maxSwatches else { throw ProjectError.tooLarge }
+        guard SwatchGroup.isValid(groups) else { throw ProjectError.invalid }
     }
 
     private func checkSize(width: Int, height: Int, used: inout Int) throws {

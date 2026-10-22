@@ -67,16 +67,20 @@ struct CanvasDocument: Equatable {
     var layers: [ImageLayer] = [] // Bottom to top.
     /// User-placed alignment lines. Saved with the project; undo covers them.
     var guides: [CanvasGuide] = []
+    /// The Swatches palette's folders. Nil until they are first changed, showing the defaults. Saved; undo covers them.
+    var swatchGroups: [SwatchGroup]?
     /// Part of the document so undo/redo covers selection changes. Not saved to disk.
     var selection: DocumentSelection?
     var size: CGSize { CGSize(width: width, height: height) }
-    init(id: UUID = UUID(), width: Int, height: Int, layers: [ImageLayer] = [], resolution: Double = 72, guides: [CanvasGuide] = []) {
+    init(id: UUID = UUID(), width: Int, height: Int, layers: [ImageLayer] = [], resolution: Double = 72, guides: [CanvasGuide] = [],
+         swatchGroups: [SwatchGroup]? = nil) {
         self.id = id
         self.width = width
         self.height = height
         self.layers = layers
         self.resolution = resolution
         self.guides = guides
+        self.swatchGroups = swatchGroups
     }
 
     // Geometry limit; raster memory limits will be established with image import.
@@ -113,6 +117,9 @@ final class EditorSession {
     var effectSelection: LayerEffectSelection?
     @ObservationIgnored var effectsPreviews = EffectsPreviewCache()
     var projectURL: URL?
+    /// The Photoshop file this document was opened from, when it started as one. It isn't `projectURL`: saving
+    /// goes through the Save panel, offering that file in Photoshop format, so it is only replaced when asked.
+    var photoshopSource: URL?
     /// Blocks overlapping edits immediately. Not observed by the UI: controls only dim via
     /// `showsBusy`, after an operation has run long enough to be worth showing, so quick
     /// edits (invert, fills, stroke commits) never flash the interface.
@@ -870,6 +877,7 @@ final class EditorSession {
                 if startsDocument, document != nil, let profile = psdProfile ?? CMYK.profile(ofImageAt: url) {
                     proofProfile = CMYK.adopt(profile)
                 }
+                if startsDocument, document != nil, PSDReader.matches(url) { photoshopSource = url }
             }
             do {
                 guard url.isFileURL else { throw ImageImportError.unsupported }

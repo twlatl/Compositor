@@ -8,7 +8,9 @@ final class ProjectTab: Identifiable {
     let session: EditorSession
     let controller: ProjectController
     let defaultName: String
-    var title: String { session.projectURL?.deletingPathExtension().lastPathComponent ?? defaultName }
+    var title: String {
+        (session.projectURL ?? session.photoshopSource)?.deletingPathExtension().lastPathComponent ?? defaultName
+    }
     init(name: String) {
         defaultName = name
         session = EditorSession()
@@ -110,7 +112,7 @@ final class ProjectWorkspace {
         var urls = suppliedURL.map { [$0] } ?? []
         if urls.isEmpty {
             let panel = NSOpenPanel()
-            panel.allowedContentTypes = UTType.openableProjects
+            panel.allowedContentTypes = UTType.openableDocuments
             panel.allowsMultipleSelection = true
             panel.treatsFilePackagesAsDirectories = false
             let window = current.controller.window
@@ -123,8 +125,19 @@ final class ProjectWorkspace {
         return opened
     }
     private func loadProject(_ url: URL) async -> Bool {
-        if let existing = tabs.first(where: { $0.session.projectURL?.resolvingSymlinksInPath() == url.resolvingSymlinksInPath() }) {
+        if let existing = tabs.first(where: { tab in
+            [tab.session.projectURL, tab.session.photoshopSource].contains { $0?.resolvingSymlinksInPath() == url.resolvingSymlinksInPath() }
+        }) {
             select(existing.id); return true
+        }
+        // A Photoshop file is imported into a tab of its own, through the conversion sheet; it is never a package.
+        if PSDReader.matches(url) {
+            let tab = addTab()
+            selectedID = tab.id
+            await tab.session.importImages([url])
+            if tab.session.document != nil { RecentProjects.shared.note(url); return true }
+            if tabs.count > 1 { removeTab(tab.id) }
+            return false
         }
         // Load into an unattached session, so a failed open never leaves a broken tab.
         let tab = ProjectTab(name: url.deletingPathExtension().lastPathComponent)

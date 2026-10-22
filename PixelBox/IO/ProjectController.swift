@@ -217,14 +217,20 @@ final class ProjectController {
         var destination = asNew ? nil : session.projectURL
         if destination == nil {
             let panel = NSSavePanel()
-            panel.allowedContentTypes = [.pixelBoxProject]
             panel.canCreateDirectories = true
             panel.isExtensionHidden = false
-            panel.nameFieldStringValue = session.projectURL?.lastPathComponent ?? "Untitled.pbox"
-            panel.title = asNew ? "Save Project As" : "Save Project"
+            panel.title = asNew ? "Save As" : "Save"
+            // A document opened from a Photoshop file is offered back as one, beside it; replacing it still asks.
+            let current = session.projectURL ?? session.photoshopSource
+            if let folder = session.photoshopSource?.deletingLastPathComponent(), session.projectURL == nil {
+                panel.directoryURL = folder
+            }
+            let picker = SaveFormatPicker(panel: panel, format: current.map(SaveFormat.init(for:)) ?? .pixelBox,
+                                          name: current?.deletingPathExtension().lastPathComponent ?? "Untitled")
             let response: NSApplication.ModalResponse
             if let window { response = await panel.beginSheetModal(for: window) }
             else { response = await panel.begin() }
+            withExtendedLifetime(picker) {}
             guard response == .OK, let url = panel.url else { return nil }
             destination = url
         }
@@ -241,6 +247,9 @@ final class ProjectController {
             externalChanges.saving = true
             defer { externalChanges.saving = false }
             do {
+                if SaveFormat(for: destination) == .photoshop {
+                    return try await writePhotoshop(snapshot, to: destination, revision: revision)
+                }
                 let quickLook = await ImageExporter.shared.quickLookImages(snapshot)
                 try await ProjectStore.shared.save(snapshot, to: destination, quickLook: quickLook)
                 session.projectURL = destination
@@ -261,6 +270,31 @@ final class ProjectController {
         return saved
     }
 
+    /// Saves as a Photoshop file. It isn't a package, so it isn't watched for changes, and a later Save writes it
+    /// again. What changed on the way (text and effects as pixels, adjustments Photoshop lacks) is listed the first
+    /// time the document goes to that file.
+    private func writePhotoshop(_ snapshot: ProjectSnapshot, to destination: URL, revision: UUID) async throws -> Bool {
+        let output = try await ImageExporter.shared.photoshopData(snapshot)
+        try await ImageExporter.shared.write(output.data, to: destination)
+        let isNewFile = session.projectURL?.resolvingSymlinksInPath() != destination.resolvingSymlinksInPath()
+        stopWatchingProject()
+        session.projectURL = destination
+        session.photoshopSource = nil
+        session.history.markSaved(revision)
+        saveGeneration += 1
+        RecentProjects.shared.note(destination)
+        if isNewFile, !output.conversions.isEmpty {
+            let alert = NSAlert()
+            alert.messageText = "Saved “\(destination.lastPathComponent)” for Photoshop"
+            alert.informativeText = "Some layers were changed to fit the Photoshop format:\n\n"
+                + output.conversions.map { "\($0.layerName): \($0.message)" }.joined(separator: "\n")
+                + "\n\nSave as a PixelBox project to keep everything editable."
+            alert.addButton(withTitle: "OK")
+            _ = await show(alert)
+        }
+        return true
+    }
+
     @discardableResult
     func open(_ suppliedURL: URL? = nil) async -> Bool {
         if let workspace { return await workspace.open(suppliedURL) }
@@ -269,7 +303,7 @@ final class ProjectController {
         var source = suppliedURL
         if source == nil {
             let panel = NSOpenPanel()
-            panel.allowedContentTypes = UTType.openableProjects
+            panel.allowedContentTypes = UTType.openableDocuments
             panel.allowsMultipleSelection = false
             panel.canChooseDirectories = false
             panel.treatsFilePackagesAsDirectories = false
@@ -286,6 +320,14 @@ final class ProjectController {
             RecentProjects.shared.refresh()
             await showError("Couldn’t open the project", error: CocoaError(.fileNoSuchFile, userInfo: [NSFilePathErrorKey: source.path]))
             return false
+        }
+        if PSDReader.matches(source) {
+            guard await confirmReplacement() else { return false }
+            session.clearProject()
+            stopWatchingProject()
+            session.isProjectBusy = false
+            await session.importImages([source])
+            return session.document != nil
         }
         let scoped = source.startAccessingSecurityScopedResource()
         defer { if scoped { source.stopAccessingSecurityScopedResource() } }
@@ -413,6 +455,47 @@ final class ProjectController {
             request.completion.resume()
         }
         processing = false
+    }
+}
+
+/// What Save writes: a PixelBox project, or a Photoshop file.
+enum SaveFormat: Int {
+    case pixelBox, photoshop
+    init(for url: URL) {
+        self = ["psd", "psb"].contains(url.pathExtension.lowercased()) ? .photoshop : .pixelBox
+    }
+    var type: UTType { self == .photoshop ? .photoshopImage : .pixelBoxProject }
+    var pathExtension: String { self == .photoshop ? "psd" : "pbox" }
+}
+
+/// The Save panel's Format menu. Choosing one changes the extension on the name, as TextEdit's does.
+@MainActor
+final class SaveFormatPicker: NSObject {
+    private weak var panel: NSSavePanel?
+    private let menu = NSPopUpButton()
+
+    init(panel: NSSavePanel, format: SaveFormat, name: String) {
+        self.panel = panel
+        super.init()
+        menu.addItems(withTitles: ["PixelBox Project", "Photoshop (PSD)"])
+        menu.selectItem(at: format.rawValue)
+        menu.target = self
+        menu.action = #selector(changed)
+        let label = NSTextField(labelWithString: "Format:")
+        let row = NSStackView(views: [label, menu])
+        row.edgeInsets = NSEdgeInsets(top: 8, left: 16, bottom: 8, right: 16)
+        panel.accessoryView = row
+        panel.nameFieldStringValue = name + "." + format.pathExtension
+        apply(format)
+    }
+
+    @objc private func changed() { apply(SaveFormat(rawValue: menu.indexOfSelectedItem) ?? .pixelBox) }
+
+    private func apply(_ format: SaveFormat) {
+        guard let panel else { return }
+        panel.allowedContentTypes = [format.type]
+        let name = (panel.nameFieldStringValue as NSString).deletingPathExtension
+        panel.nameFieldStringValue = (name.isEmpty ? "Untitled" : name) + "." + format.pathExtension
     }
 }
 

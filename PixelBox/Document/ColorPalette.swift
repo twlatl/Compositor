@@ -307,7 +307,7 @@ final class ColorPickerState {
 
 /// Hue in degrees, saturation and brightness 0...1. Kept as the picker's source of
 /// truth so hue survives dragging through grays and black.
-struct PickerHSB: Equatable {
+nonisolated struct PickerHSB: Equatable {
     var hue: CGFloat
     var saturation: CGFloat
     var brightness: CGFloat
@@ -355,7 +355,7 @@ struct PickerHSB: Equatable {
     }
 }
 
-extension PaletteColor {
+nonisolated extension PaletteColor {
     /// Snaps to the 8-bit values that painting and export actually store.
     var quantized: PaletteColor {
         PaletteColor(red: (red * 255).rounded() / 255, green: (green * 255).rounded() / 255, blue: (blue * 255).rounded() / 255)
