@@ -21,7 +21,7 @@ On an existing opaque 4K layer, the new 800 px brush measured 2.80 ms median / 5
 
 Release also built and passed the benchmark. Its 800 px blank-layer median was 2.81 ms and mouse-up was 9.6–11.0 ms (the original Release mouse-up was 87–111 ms). The opaque-layer run measured 4.35 ms median and 7.4–15.9 ms mouse-up; this variation reinforces using measured ranges rather than promising a fixed frame rate.
 
-The final Debug unit run passed **171 tests in 25 suites**. Logs for this change are `/tmp/compositor-brush-final-tests.log`, `/tmp/compositor-brush-new-debug.log`, `/tmp/compositor-brush-new-release.log`, and `/tmp/compositor-brush-baseline-debug.log`.
+The final Debug unit run passed **171 tests in 25 suites**. Logs for this change are `/tmp/pixelbox-brush-final-tests.log`, `/tmp/pixelbox-brush-new-debug.log`, `/tmp/pixelbox-brush-new-release.log`, and `/tmp/pixelbox-brush-baseline-debug.log`.
 
 ## Reproduce
 
@@ -29,14 +29,14 @@ Run performance tests alone, so other main-actor tests do not contend with the b
 
 ```sh
 TEST_RUNNER_BRUSH_BENCHMARK=1 xcodebuild \
-  -project Compositor.xcodeproj -scheme Compositor -configuration Debug \
-  -derivedDataPath /tmp/CompositorBrush -destination 'platform=macOS' \
+  -project PixelBox.xcodeproj -scheme PixelBox -configuration Debug \
+  -derivedDataPath /tmp/PixelBoxBrush -destination 'platform=macOS' \
   CODE_SIGNING_ALLOWED=NO ENABLE_DEBUG_DYLIB=NO \
   -parallel-testing-enabled NO \
-  -only-testing:CompositorTests/BrushPerformanceTests test
+  -only-testing:PixelBoxTests/BrushPerformanceTests test
 ```
 
-The benchmark logs `BRUSH BENCH` lines and exports `/tmp/compositor-brush-benchmark.png` for visual inspection. It exercises both blank and opaque layers. The exported example contains both benchmark passes.
+The benchmark logs `BRUSH BENCH` lines and exports `/tmp/pixelbox-brush-benchmark.png` for visual inspection. It exercises both blank and opaque layers. The exported example contains both benchmark passes.
 
 Functional coverage includes continuous soft coverage at 800 px, tile boundaries, curve/tail replacement, opacity, selections, transformed layers, immediate subsequent strokes, mask painting/expansion, immutable snapshots, display/export agreement, undo/redo, save/reopen, and the software fallback. Snapshots are verified not to materialize during commit, display, or the next stroke.
 
@@ -44,8 +44,8 @@ Functional coverage includes continuous soft coverage at 800 px, tile boundaries
 
 The initial continuous-tip implementation took the maximum falloff at each pixel. That removed stamp ridges, but the meeting point of two feathered edges formed a sharp crease. Soft tips now integrate optical density along each curve segment, then convert the accumulated density to coverage. Permanent density is stored in floating-point tile buffers; provisional tails remain separate and are replaced, never double-counted. Hard tips keep their solid silhouette. The existing opacity cap and immediate snapshot commits are unchanged.
 
-Crossing tests compare the joined stroke against source-over coverage, verify the opacity cap, repeated flushes, the software fallback, and equivalent output at sparse/dense sampling for 12, 120, and 520 px tips. The matching 520 px / 4K example is exported to `/tmp/compositor-brush-crossing.png` by `BrushIntersectionTests/exportCrossingExample` with `TEST_RUNNER_BRUSH_BENCHMARK=1`.
+Crossing tests compare the joined stroke against source-over coverage, verify the opacity cap, repeated flushes, the software fallback, and equivalent output at sparse/dense sampling for 12, 120, and 520 px tips. The matching 520 px / 4K example is exported to `/tmp/pixelbox-brush-crossing.png` by `BrushIntersectionTests/exportCrossingExample` with `TEST_RUNNER_BRUSH_BENCHMARK=1`.
 
-With this correction, the 800 px / 4K Debug benchmark measured 3.08–3.12 ms median update and 6.3–9.7 ms mouse-up across blank and opaque layers. Log: `/tmp/compositor-intersection-bench.log`.
+With this correction, the 800 px / 4K Debug benchmark measured 3.08–3.12 ms median update and 6.3–9.7 ms mouse-up across blank and opaque layers. Log: `/tmp/pixelbox-intersection-bench.log`.
 
-The post-correction full Debug suite passed **175 tests in 26 suites** (`/tmp/compositor-intersection-full.log`).
+The post-correction full Debug suite passed **175 tests in 26 suites** (`/tmp/pixelbox-intersection-full.log`).
