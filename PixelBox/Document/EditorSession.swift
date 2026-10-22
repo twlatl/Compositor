@@ -113,6 +113,9 @@ final class EditorSession {
     var effectSelection: LayerEffectSelection?
     @ObservationIgnored var effectsPreviews = EffectsPreviewCache()
     var projectURL: URL?
+    /// The Photoshop file this document was opened from, when it started as one. It isn't `projectURL`: saving
+    /// goes through the Save panel, offering that file in Photoshop format, so it is only replaced when asked.
+    var photoshopSource: URL?
     /// Blocks overlapping edits immediately. Not observed by the UI: controls only dim via
     /// `showsBusy`, after an operation has run long enough to be worth showing, so quick
     /// edits (invert, fills, stroke commits) never flash the interface.
@@ -870,6 +873,7 @@ final class EditorSession {
                 if startsDocument, document != nil, let profile = psdProfile ?? CMYK.profile(ofImageAt: url) {
                     proofProfile = CMYK.adopt(profile)
                 }
+                if startsDocument, document != nil, PSDReader.matches(url) { photoshopSource = url }
             }
             do {
                 guard url.isFileURL else { throw ImageImportError.unsupported }
