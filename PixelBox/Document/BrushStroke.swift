@@ -729,6 +729,12 @@ final class BrushStroke {
         }
     }
 
+    /// Runs `draw` in document coordinates over `area` only (still clipped to the canvas and selection), for a shape
+    /// painted into the layer.
+    func paint(in area: CGRect, _ draw: @escaping (CGContext) throws -> Void) throws {
+        try paintCanvas(limit: area, draw)
+    }
+
     /// Erases image pixels to transparency inside the selection, only where pixels exist.
     func clearPixels() throws {
         try paintCanvas(withinSource: true) { context in
@@ -741,10 +747,11 @@ final class BrushStroke {
     /// Runs `draw` in document coordinates over every tile the canvas and selection
     /// cover (only the layer's existing pixels with `withinSource`), clipped to both,
     /// starting from each tile's original content.
-    private func paintCanvas(withinSource: Bool = false, _ draw: @escaping (CGContext) throws -> Void) throws {
+    private func paintCanvas(withinSource: Bool = false, limit: CGRect? = nil, _ draw: @escaping (CGContext) throws -> Void) throws {
         canvasPaint = (draw, withinSource)
         var area = canvas
         if let selectionClip { area = area.intersection(selectionClip.rect) }
+        if let limit { area = area.intersection(limit) }
         guard !area.isNull, !area.isEmpty else { return }
         let inverse = pixelToDocument.inverted()
         var affected = area.applying(inverse).integral.intersection(CGRect(x: 0, y: 0, width: width, height: height))

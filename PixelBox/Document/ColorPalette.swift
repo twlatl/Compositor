@@ -126,6 +126,26 @@ extension EditorSession {
                 setGradientMapColor(commit ? colorPicker.color : colorPicker.original, highlights: highlights)
             case .vignette:
                 setVignetteColor(commit ? colorPicker.color : colorPicker.original)
+            case .shapeStroke:
+                if commit {
+                    shapeStrokeColor = colorPicker.color
+                    shapeStrokeEnabled = true
+                    let color = colorPicker.color
+                    restyleShape("Stroke Color") { style in
+                        guard style.kind != .line else { return }
+                        var stroke = style.stroke ?? ShapeStroke(color: color, width: CGFloat(shapeStrokeWidth), options: shapeStrokeOptions)
+                        stroke.red = color.red; stroke.green = color.green; stroke.blue = color.blue
+                        style.stroke = stroke
+                    }
+                }
+            case .shapeFill:
+                if commit {
+                    let color = colorPicker.color
+                    restyleShape("Fill Color") { style in
+                        style.red = color.red; style.green = color.green; style.blue = color.blue
+                        if style.kind != .line { style.filled = nil }
+                    }
+                }
             case .dither(let light):
                 setDitherColor(commit ? colorPicker.color : colorPicker.original, light: light)
             case .dialog:
@@ -267,6 +287,10 @@ enum ColorPickerTarget: Equatable {
     case effect(kind: LayerEffectKind)
     case gradientMap(highlights: Bool)
     case vignette
+    /// The Shape tool's stroke color.
+    case shapeStroke
+    /// A selected shape layer's own fill color.
+    case shapeFill
     /// Dither's Two Colors: the dark one or the light one.
     case dither(light: Bool)
     case text(draftID: UUID?)
@@ -279,6 +303,8 @@ enum ColorPickerTarget: Equatable {
         case .palette(let background): return background ? "Color Picker (Background Color)" : "Color Picker (Foreground Color)"
         case .gradientMap(let highlights): return highlights ? "Color Picker (Gradient Map Highlights)" : "Color Picker (Gradient Map Shadows)"
         case .vignette: return "Color Picker (Vignette Color)"
+        case .shapeStroke: return "Color Picker (Stroke Color)"
+        case .shapeFill: return "Color Picker (Fill Color)"
         case .dither(let light): return light ? "Color Picker (Light Color)" : "Color Picker (Dark Color)"
         case .dialog(let title): return "Color Picker (\(title))"
         }

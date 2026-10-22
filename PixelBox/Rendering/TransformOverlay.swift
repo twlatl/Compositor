@@ -193,6 +193,8 @@ final class TransformOverlay: NSView {
         else { drawTransformHandles() }
         drawSelection()
         drawLassoDraft()
+        drawWorkPath()
+        drawShapePath()
         drawSnapGuides()
         drawRulerOriginDrag()
     }
@@ -335,6 +337,51 @@ final class TransformOverlay: NSView {
         context.restoreGState()
     }
 
+
+    /// The outline the Shape tool drew in Path mode, shown while the tool is in use.
+    private func drawWorkPath() {
+        guard session.tool == .shape, let workPath = session.workPath, var transform = documentToView,
+              let path = workPath.copy(using: &transform), let context = NSGraphicsContext.current?.cgContext else { return }
+        CanvasView.strokeOutline(path, in: context)
+    }
+
+    /// With the Path Selection tool, the active shape's path and its anchor points: filled where selected, hollow
+    /// where not, with the handles of the selected points.
+    private func drawShapePath() {
+        guard session.tool == .pathSelection, let knots = session.pathKnotsInDocument, let transform = documentToView,
+              let context = NSGraphicsContext.current?.cgContext else { return }
+        var toView = transform
+        guard let outline = ShapeOutline.path(of: knots).copy(using: &toView) else { return }
+        CanvasView.strokeOutline(outline, in: context)
+        let selected = session.shownPathKnots
+        context.saveGState()
+        context.setLineWidth(1)
+        for (subpathIndex, subpath) in knots.enumerated() {
+            for (index, knot) in subpath.knots.enumerated() {
+                let anchor = knot.anchor.applying(transform)
+                let isSelected = selected.contains(PathKnot(subpath: subpathIndex, knot: index))
+                if isSelected, session.pathSelectionMode == .direct {
+                    for handle in [knot.incoming, knot.outgoing] where handle != knot.anchor {
+                        let point = handle.applying(transform)
+                        context.setStrokeColor(NSColor.systemBlue.cgColor)
+                        context.move(to: anchor)
+                        context.addLine(to: point)
+                        context.strokePath()
+                        let dot = CGRect(x: point.x - 3, y: point.y - 3, width: 6, height: 6)
+                        context.setFillColor(NSColor.white.cgColor)
+                        context.fillEllipse(in: dot)
+                        context.strokeEllipse(in: dot)
+                    }
+                }
+                let square = CGRect(x: anchor.x - 3.5, y: anchor.y - 3.5, width: 7, height: 7)
+                context.setFillColor(isSelected ? NSColor.systemBlue.cgColor : NSColor.white.cgColor)
+                context.fill(square)
+                context.setStrokeColor(NSColor.systemBlue.cgColor)
+                context.stroke(square)
+            }
+        }
+        context.restoreGState()
+    }
 
     private func drawLassoDraft() {
         guard let draft = session.lassoDraft, let transform = documentToView,

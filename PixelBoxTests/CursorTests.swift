@@ -70,6 +70,26 @@ struct CursorTests {
         }
     }
 
+    /// Photoshop's black arrow for Path Selection and white arrow for Direct Selection, switching with Shift-A.
+    @Test func pathSelectionShowsItsOwnArrowForEachMode() {
+        let session = EditorSession()
+        session.createDocument(width: 400, height: 300)
+        let view = CanvasView(session: session)
+        let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 400, height: 300), styleMask: [.titled],
+                              backing: .buffered, defer: false)
+        window.contentView = view
+        defer { NSCursor.arrow.set() }
+        session.selectTool(.pathSelection)
+        view.synchronizeDisplay()
+        view.mouseMoved(with: mouse(at: NSPoint(x: 200, y: 150), in: window))
+        #expect(NSCursor.current === CanvasView.pathSelectionCursor)
+        session.togglePathSelectionMode()
+        view.synchronizeDisplay()
+        view.mouseMoved(with: mouse(at: NSPoint(x: 201, y: 150), in: window))
+        #expect(NSCursor.current === CanvasView.directSelectionCursor)
+        #expect(CanvasView.pathSelectionCursor !== CanvasView.directSelectionCursor)
+    }
+
     @Test func aDragReleasedOutsideTheCanvasRestoresTheArrow() {
         let session = EditorSession()
         session.createDocument(width: 400, height: 300)

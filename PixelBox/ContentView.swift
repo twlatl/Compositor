@@ -50,6 +50,10 @@ struct ContentView: View {
                 ShapeControls(session: session)
                 Divider()
             }
+            if session.tool == .pathSelection {
+                PathSelectionControls(session: session)
+                Divider()
+            }
             if session.tool == .eyedropper {
                 HStack(spacing: 16) {
                     Text("Eyedropper").font(ToolHeaderStyle.titleFont)
@@ -66,7 +70,7 @@ struct ContentView: View {
                 CropControls(session: session)
                 Divider()
             }
-            // No tool (A) keeps the header, so the canvas doesn't jump.
+            // No tool keeps the header, so the canvas doesn't jump.
             if session.tool == .idle {
                 HStack(spacing: 16) {
                     Text("Select a tool").font(ToolHeaderStyle.titleFont)
@@ -308,6 +312,15 @@ struct ContentView: View {
         if let applicationDelegate { Task { await applicationDelegate.projects.newCanvas() } }
         else { session.clearProject() }
     }
+    /// The status bar's hint for the Shape tool, which depends on the shape and on what it makes.
+    private var shapeHint: String {
+        let kind = session.shapeKind
+        let shift = kind == .line ? "45°" : kind == .ellipse ? "circle" : kind == .custom ? "keep proportions" : "square"
+        let action = session.shapeMode == .path ? "Drag to draw a path · Return makes it a selection"
+            : session.shapeMode == .pixels ? "Drag to draw on the active layer" : "Drag to draw a shape on a new layer"
+        return "\(action) · Shift \(shift) · Option from center · Shift-U or Tab for the next shape · Escape cancel · Space to pan"
+    }
+
     private var toolRail: some View {
         // Scrolls when the window is too short for every tool, rather than pushing the bars above and below away.
         IndicatorlessScrollView {
@@ -319,10 +332,14 @@ struct ContentView: View {
                         else if tool == .cloneStamp { CloneStampToolIcon().frame(width: 18, height: 18) }
                         else if tool == .lasso, session.lassoKind == .polygonal { PolygonalLassoToolIcon().frame(width: 18, height: 18) }
                         else if tool == .wand, session.wandMode == .object { ObjectSelectionToolIcon().frame(width: 18, height: 18) }
+                        // The Shape tool's icon is the shape it draws.
+                        else if tool == .shape { Image(systemName: session.shapeKind.symbol).font(.system(size: 17)) }
+                        else if tool == .pathSelection { PathSelectionToolIcon(direct: session.pathSelectionMode == .direct).frame(width: 18, height: 18) }
                         // The Marquee's icon follows its shape: a dashed circle in Ellipse mode.
                         else { Image(systemName: tool == .marquee && session.marqueeKind == .ellipse ? "circle.dashed" : session.symbol(for: tool)).font(.system(size: 17)) }
                     }
                     .frame(width: 36, height: 36)
+                    .overlay(alignment: .bottomTrailing) { if tool == .shape || tool == .pathSelection { ToolFlyoutCorner().padding(4) } }
                         .background(session.tool == tool ? Color.white.opacity(0.12) : .clear,
                                     in: RoundedRectangle(cornerRadius: 7))
                         .overlay {
@@ -334,6 +351,17 @@ struct ContentView: View {
                 .buttonStyle(.plain).help(tool.label).accessibilityLabel(tool.label)
                 .foregroundStyle(.primary)
                 .accessibilityAddTraits(session.tool == tool ? .isSelected : [])
+                // Holding the Shape tool, or right-clicking it, shows every shape it draws; the Path Selection tool,
+                // its two modes.
+                .overlay {
+                    if tool == .shape {
+                        PressAndHold(click: { session.selectTool(.shape) }, hold: { ShapeToolMenu.show(for: session) })
+                            .accessibilityHidden(true)
+                    } else if tool == .pathSelection {
+                        PressAndHold(click: { session.selectTool(.pathSelection) }, hold: { PathSelectionToolMenu.show(for: session) })
+                            .accessibilityHidden(true)
+                    }
+                }
             }
             ColorPaletteControls(session: session).padding(.top, 8)
         }
@@ -363,7 +391,7 @@ struct ContentView: View {
                 ProgressView().controlSize(.mini)
                 Text("Importing images…")
             } else {
-                Text(session.tool == .marquee ? (session.marqueeKind == .ellipse ? "Drag an ellipse · Shift add · Option subtract · Shift again mid-drag circle · Drag inside to move · Delete clears · ⌘D deselect" : "Drag a rectangle · Shift add · Option subtract · Shift again mid-drag square · Drag inside to move · ⌘-drag moves pixels · Delete clears · ⌘D deselect") : session.tool == .wand ? (session.wandMode == .object ? "Click an object to select its outline · Tab for Wand · Shift add · Option subtract · Drag inside to move · ⌘-drag moves pixels · Delete clears · ⌘D deselect" : "Click to select similar colors · Tab for Object · Shift add · Option subtract · Drag inside to move · ⌘-drag moves pixels · Delete clears · ⌘D deselect") : session.tool == .lasso ? (session.lassoKind == .freehand ? "Drag to select · Drag inside to move · Shift add · Option subtract · Delete clears · ⌥⌫/⌘⌫ fill · ⌘D deselect" : "Click corners · Click start, double-click or Enter to close · Delete removes corner · Escape cancel") : session.tool == .brush ? (session.brushMode == .erase ? "Drag to erase" : "Drag to paint") + " · [ ] size · Shift-[ ] hardness · 1–0 opacity · Escape cancel · Space to pan" : session.tool == .blur ? (session.blurMode == .blur ? "Drag to soften" : session.blurMode == .smudge ? "Drag to smudge" : "Drag to push pixels") + " · [ ] size · Shift-[ ] hardness · 1–0 strength · Space to pan" : session.tool == .cloneStamp ? "Option-click to set the source · Drag to clone · [ ] size · Shift-[ ] hardness · 1–0 opacity · Space to pan" : session.tool == .spotHealing ? "Drag over blemishes to heal · [ ] size · Shift-[ ] hardness · Escape cancel · Space to pan" : session.tool == .type ? "Drag a text box · Click text to edit · Drag box handles to resize · ⌘Return finish · Escape cancel" : session.tool == .shape ? "Drag to draw a shape on a new layer · Shift \(session.shapeKind == .line ? "45°" : session.shapeKind == .rectangle ? "square" : "circle") · Option from center · Shift-U or Tab for the next shape · Escape cancel · Space to pan" : session.tool == .gradient ? "Drag to draw · Drag ends to adjust · Shift 45° · 1–0 opacity · Enter apply · Escape cancel" : session.tool == .crop ? "Drag to crop · Enter apply · Escape cancel · Space to pan" : session.tool == .move ? "Drag to move · Handles to resize · Circle to rotate · 1–0 layer opacity · Space to pan" : session.tool == .hand ? "Drag to pan · Pinch to zoom" : session.tool == .idle ? "No tool selected · Press a tool's key to pick one · Space to pan" : "Click to zoom in · Option-click to zoom out · Drag right or left to zoom smoothly · Space to pan")
+                Text(session.tool == .marquee ? (session.marqueeKind == .ellipse ? "Drag an ellipse · Shift add · Option subtract · Shift again mid-drag circle · Drag inside to move · Delete clears · ⌘D deselect" : "Drag a rectangle · Shift add · Option subtract · Shift again mid-drag square · Drag inside to move · ⌘-drag moves pixels · Delete clears · ⌘D deselect") : session.tool == .wand ? (session.wandMode == .object ? "Click an object to select its outline · Tab for Wand · Shift add · Option subtract · Drag inside to move · ⌘-drag moves pixels · Delete clears · ⌘D deselect" : "Click to select similar colors · Tab for Object · Shift add · Option subtract · Drag inside to move · ⌘-drag moves pixels · Delete clears · ⌘D deselect") : session.tool == .lasso ? (session.lassoKind == .freehand ? "Drag to select · Drag inside to move · Shift add · Option subtract · Delete clears · ⌥⌫/⌘⌫ fill · ⌘D deselect" : "Click corners · Click start, double-click or Enter to close · Delete removes corner · Escape cancel") : session.tool == .brush ? (session.brushMode == .erase ? "Drag to erase" : "Drag to paint") + " · [ ] size · Shift-[ ] hardness · 1–0 opacity · Escape cancel · Space to pan" : session.tool == .blur ? (session.blurMode == .blur ? "Drag to soften" : session.blurMode == .smudge ? "Drag to smudge" : "Drag to push pixels") + " · [ ] size · Shift-[ ] hardness · 1–0 strength · Space to pan" : session.tool == .cloneStamp ? "Option-click to set the source · Drag to clone · [ ] size · Shift-[ ] hardness · 1–0 opacity · Space to pan" : session.tool == .spotHealing ? "Drag over blemishes to heal · [ ] size · Shift-[ ] hardness · Escape cancel · Space to pan" : session.tool == .type ? "Drag a text box · Click text to edit · Drag box handles to resize · ⌘Return finish · Escape cancel" : session.tool == .shape ? shapeHint : session.tool == .pathSelection ? (session.pathSelectionMode == .direct ? "Click a point to select it · Shift-click adds · Drag points or handles to reshape · Option-drag a handle to break the curve · Delete removes points · Shift-A for Path Selection" : "Click a shape to select its path · Drag to move it · Shift-A for Direct Selection to move its points") : session.tool == .gradient ? "Drag to draw · Drag ends to adjust · Shift 45° · 1–0 opacity · Enter apply · Escape cancel" : session.tool == .crop ? "Drag to crop · Enter apply · Escape cancel · Space to pan" : session.tool == .move ? "Drag to move · Handles to resize · Circle to rotate · 1–0 layer opacity · Space to pan" : session.tool == .hand ? "Drag to pan · Pinch to zoom" : session.tool == .idle ? "No tool selected · Press a tool's key to pick one · Space to pan" : "Click to zoom in · Option-click to zoom out · Drag right or left to zoom smoothly · Space to pan")
             }
         }
         .font(.system(size: 11).monospacedDigit()).foregroundStyle(.secondary)
