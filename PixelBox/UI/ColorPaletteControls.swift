@@ -3,6 +3,9 @@ import AppKit
 
 struct ColorPaletteControls: View {
     let session: EditorSession
+    /// Whether this copy shows the floating color picker. The tool rail's does; the Color palette's, a second copy
+    /// of the same swatches, leaves it to that one so the picker isn't opened twice.
+    var hostsPicker = true
     @State private var choosingMaskBackground: Bool?
     @State private var pickerPanel = ColorPickerPanelController()
     private let swatchSize: CGFloat = 24
@@ -47,12 +50,13 @@ struct ColorPaletteControls: View {
             }.padding(16)
         }
         .onChange(of: session.colorPicker.map(ObjectIdentifier.init)) { _, _ in
+            guard hostsPicker else { return }
             if let picker = session.colorPicker { pickerPanel.show(picker, session: session) }
             else { pickerPanel.close() }
         }
         .onChange(of: session.isMaskSelected) { _, masked in
             choosingMaskBackground = nil
-            if masked { session.closeColorPicker(commit: false) }
+            if masked, hostsPicker { session.closeColorPicker(commit: false) }
         }
     }
     private func swatch(background: Bool) -> some View {
