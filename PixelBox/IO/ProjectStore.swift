@@ -24,7 +24,7 @@ extension UTType {
 
 nonisolated struct ProjectManifest: Codable, Sendable {
     /// The format version new saves write.
-    static let current = 16
+    static let current = 19
     /// Every version `load` accepts. The package-header check, the manifest check and the error
     /// message all read this, so they cannot drift apart when `current` is bumped.
     static let supported = 1...ProjectManifest.current
@@ -236,8 +236,10 @@ actor ProjectStore {
         guard (1...DocumentLimits.maxSide).contains(manifest.width), (1...DocumentLimits.maxSide).contains(manifest.height),
               manifest.layers.count <= 10_000 else { throw ProjectError.tooLarge }
         for layer in manifest.layers {
-            if layer.shape?.smoothing == true {
-                guard manifest.version >= 14 else { throw ProjectError.invalid }
+            if let shape = layer.shape {
+                guard shape.isValid, shape.smoothing != true || manifest.version >= 14,
+                      !shape.needsVersion17 || manifest.version >= 17,
+                      !shape.needsVersion19 || manifest.version >= 19 else { throw ProjectError.invalid }
             }
             if let text = layer.text {
                 // Per-letter colors arrived in version 10, per-letter faces in version 11.
@@ -250,6 +252,10 @@ actor ProjectStore {
                 guard manifest.version >= 7, layer.isGroup != true, layer.imageFile == nil, adjustment.isValid else { throw ProjectError.invalid }
                 if adjustment.kind == .gaussianBlur || adjustment.kind == .motionBlur || adjustment.kind == .addNoise {
                     guard manifest.version >= 9 else { throw ProjectError.invalid }
+                }
+                // A Gradient Map of more than two colors, or with a midpoint moved, arrived in version 18.
+                if adjustment.gradientMapSettings?.stops != nil {
+                    guard manifest.version >= 18 else { throw ProjectError.invalid }
                 }
             }
             // Layer masks arrived in version 4, folder masks in version 6.

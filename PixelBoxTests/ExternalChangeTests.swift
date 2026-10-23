@@ -46,7 +46,9 @@ struct ExternalChangeTests {
         try await ProjectStore.shared.save(snapshot, to: url)
     }
 
-    private func eventually(_ timeout: Duration = .seconds(4), _ condition: () -> Bool) async -> Bool {
+    /// Waits for the watcher to have done something, polling: it returns as soon as `condition` holds, so the long
+    /// timeout only matters on a machine busy enough (the whole suite running) to report disk changes slowly.
+    private func eventually(_ timeout: Duration = .seconds(15), _ condition: () -> Bool) async -> Bool {
         let deadline = ContinuousClock.now + timeout
         while ContinuousClock.now < deadline {
             if condition() { return true }
@@ -55,6 +57,8 @@ struct ExternalChangeTests {
         return condition()
     }
 
+    /// Gives the watcher time to react, for checks that it doesn't: nothing to poll for there. Anything it should do
+    /// is waited for with `eventually` instead.
     private func settle() async { try? await Task.sleep(for: .milliseconds(900)) }
 
     @Test func digestFollowsContentNotMetadata() async throws {
@@ -164,10 +168,10 @@ struct ExternalChangeTests {
         let active = try #require(session.document?.layers.first?.id)
         session.renameLayer(active, to: "Unsaved here")
         try await renameFirstLayerOnDisk(url, to: "Renamed elsewhere")
-        await settle()
-        // No window to ask in, so the question waits and the document keeps the unsaved edit.
+        // No window to ask in, so the question waits and the document keeps the unsaved edit. Waiting for the watcher
+        // to have noticed, not a fixed time: a busy machine can take seconds to report the write.
+        #expect(await eventually { controller.externalChanges.pending })
         #expect(controller.externalChanges.reloadCount == 0)
-        #expect(controller.externalChanges.pending)
         #expect(session.document?.layers.first?.name == "Unsaved here")
         #expect(session.isModified)
     }

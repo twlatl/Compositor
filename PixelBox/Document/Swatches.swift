@@ -1,5 +1,6 @@
 import Foundation
 import CoreGraphics
+import Observation
 
 /// A named color kept in the Swatches palette. Saved with the project.
 nonisolated struct Swatch: Codable, Equatable, Hashable, Sendable, Identifiable {
@@ -186,5 +187,44 @@ extension EditorSession {
         if trimmed.isEmpty { trimmed = fallback }
         while trimmed.utf8.count > SwatchGroup.maxNameBytes { trimmed.removeLast() }
         return trimmed
+    }
+}
+
+/// The colors last chosen in the color picker, anywhere in the app, newest first: kept across launches in Application
+/// Support for the whole app, unlike swatches, which belong to a project. Tests start empty and never touch the file.
+@Observable
+final class RecentColors {
+    static let shared = RecentColors(fileURL: isTesting ? nil : defaultURL)
+    static let limit = 12
+    private static let isTesting = ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
+
+    private(set) var colors: [PaletteColor] { didSet { save() } }
+    @ObservationIgnored private let fileURL: URL?
+
+    /// Recent colors kept in `fileURL`, or only in memory when it is nil.
+    init(fileURL: URL?) {
+        self.fileURL = fileURL
+        if let fileURL, let data = try? Data(contentsOf: fileURL), let saved = try? JSONDecoder().decode([PaletteColor].self, from: data) {
+            colors = Array(saved.prefix(Self.limit))
+        } else {
+            colors = []
+        }
+    }
+
+    private static var defaultURL: URL? {
+        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first?
+            .appendingPathComponent("PixelBox", isDirectory: true).appendingPathComponent("Recent Colors.json")
+    }
+
+    private func save() {
+        guard let fileURL, let data = try? JSONEncoder().encode(colors) else { return }
+        try? FileManager.default.createDirectory(at: fileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try? data.write(to: fileURL, options: .atomic)
+    }
+
+    func add(_ color: PaletteColor) {
+        var list = colors.filter { $0 != color }
+        list.insert(color, at: 0)
+        colors = Array(list.prefix(Self.limit))
     }
 }

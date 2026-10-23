@@ -8,17 +8,16 @@ struct GradientControls: View {
             Text("Gradient").font(ToolHeaderStyle.titleFont)
             ScrollView(.horizontal) {
                 HStack(spacing: 12) {
-                    Picker("Shape", selection: $session.gradientSettings.shape) {
-                        ForEach(GradientShape.allCases, id: \.self) { Text($0.rawValue).tag($0) }
+                    GradientShapePicker(shape: $session.gradientSettings.shape)
+                        .help("Linear runs along the line; Radial spreads out from the start point; Angle sweeps around it")
+                    // The tool's gradient, stops that follow the palette in its colors; it opens the gradient editor.
+                    GradientWell(title: "Gradient", gradient: session.gradientSettings.gradient.resolved(
+                        foreground: session.paletteColor(background: false), background: session.paletteColor(background: true)),
+                                 session: session) {
+                        session.openGradientPicker(.tool)
                     }
-                    .pickerStyle(.segmented).labelsHidden().fixedSize()
-                    .help("Linear runs along the line; Radial spreads out from the start point")
-                    swatch
-                    Picker("Colors", selection: $session.gradientSettings.style) {
-                        ForEach(GradientStyle.allCases, id: \.self) { Text($0.rawValue).tag($0) }
-                    }
-                    .labelsHidden().fixedSize()
-                    Toggle("Reverse", isOn: $session.gradientSettings.reversed)
+                    // Turns the tool's gradient round, as the well shows it.
+                    GradientReverseButton { session.gradientSettings.gradient = session.gradientSettings.gradient.reversed }
                     Text("Opacity").scrubbable(sensitivity: 0.01, value: $session.gradientSettings.opacity, range: 0.01...1)
                     Slider(value: $session.gradientSettings.opacity, in: 0.01...1).frame(width: 100)
                     TextField("Opacity", value: Binding<Double>(get: { Double(session.gradientSettings.opacity * 100) },
@@ -41,27 +40,6 @@ struct GradientControls: View {
         }
         .padding(.horizontal, 18).toolHeaderBar().releasesFocusOnCommit(session)
         .disabled(session.showsBusy || session.document == nil)
-    }
-
-    /// Current colors, over a checkerboard so transparency reads as transparency.
-    private var swatch: some View {
-        let colors = session.gradientColors(mask: false).map { Color(cgColor: $0) }
-        let shape = RoundedRectangle(cornerRadius: 3, style: .continuous)
-        return Canvas { context, size in
-            let tile: CGFloat = 4
-            for row in 0..<Int(ceil(size.height / tile)) {
-                for column in 0..<Int(ceil(size.width / tile)) where (row + column).isMultiple(of: 2) {
-                    context.fill(Path(CGRect(x: CGFloat(column) * tile, y: CGFloat(row) * tile, width: tile, height: tile)),
-                                 with: .color(.gray.opacity(0.45)))
-                }
-            }
-        }
-        .background(.white)
-        .overlay { LinearGradient(colors: colors, startPoint: .leading, endPoint: .trailing) }
-        .clipShape(shape)
-        .overlay { shape.strokeBorder(.black.opacity(0.5), lineWidth: 1) }
-        .frame(width: 56, height: 18)
-        .accessibilityHidden(true)
     }
 }
 

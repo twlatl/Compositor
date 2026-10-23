@@ -41,14 +41,7 @@ struct TypeControls: View {
                         .unitSuffix("px", scrubValue: value(\.fontSize), sensitivity: 1, range: 1...2000, step: 1)
                         .arrowSteps(value: { Double(session.currentTextStyle.fontSize) },
                                     change: { stepped in session.changeTextStyle { $0.fontSize = CGFloat(min(2000, max(1, stepped))) } })
-                    Button { session.openTextColorPicker() } label: {
-                        let color = session.typeColor
-                        let swatch = RoundedRectangle(cornerRadius: 3, style: .continuous)
-                        swatch.fill(Color(red: color.red, green: color.green, blue: color.blue))
-                            .overlay { swatch.strokeBorder(.black.opacity(0.5), lineWidth: 1) }
-                            .frame(width: 36, height: 18)
-                    }
-                    .buttonStyle(.plain).help("Text color").accessibilityLabel("Text color")
+                    ColorWell(title: "Text color", color: session.typeColor, session: session) { session.openTextColorPicker() }
                     HStack(spacing: 2) {
                         ForEach(TextAlignment.allCases, id: \.self) { alignment in
                             let selected = session.currentTextStyle.alignment == alignment
@@ -96,7 +89,6 @@ struct TypeControls: View {
         }
         .textFieldStyle(.roundedBorder).padding(.horizontal, 18).toolHeaderBar()
         .disabled(session.document == nil || session.showsBusy)
-        .onChange(of: session.colorPicker?.color) { _, _ in session.previewTextColor() }
     }
 }
 

@@ -183,7 +183,7 @@ struct SwatchTests {
         let folder = try #require(session.addSwatchGroup(named: "Saved"))
         session.addSwatch(PaletteColor(hex: "336699")!, named: "Slate", near: folder)
         let snapshot = try #require(session.projectSnapshot())
-        #expect(snapshot.manifest.version == 16)
+        #expect(snapshot.manifest.version == ProjectManifest.current)
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("Swatches-\(UUID()).pbox")
         defer { try? FileManager.default.removeItem(at: url) }
         try await ProjectStore.shared.save(snapshot, to: url)

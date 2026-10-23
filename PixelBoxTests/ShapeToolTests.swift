@@ -171,4 +171,141 @@ struct ShapeToolTests {
         }
     }
 
+
+    @Test func shiftUStepsThroughEveryShapeInTheFlyoutsOrder() {
+        let session = makeSession()
+        var seen: [ShapeKind] = [session.shapeKind]
+        for _ in 1..<ShapeKind.allCases.count { session.toggleShapeKind(); seen.append(session.shapeKind) }
+        #expect(seen == [.rectangle, .ellipse, .triangle, .polygon, .star, .line, .custom])
+        session.toggleShapeKind()
+        #expect(session.shapeKind == .rectangle)
+    }
+
+    /// Polygons and stars put their first point at the top and are stretched to fill the box they're dragged out to.
+    @Test func trianglesPolygonsAndStarsFillTheirBox() {
+        let rect = CGRect(x: 10, y: 20, width: 90, height: 60)
+        func corners(_ path: CGPath) -> Int {
+            var count = 0
+            path.applyWithBlock { if $0.pointee.type == .addLineToPoint || $0.pointee.type == .moveToPoint { count += 1 } }
+            return count
+        }
+        for kind in [ShapeKind.triangle, .polygon, .star] {
+            let bounds = kind.path(in: rect, sides: 7).boundingBoxOfPath
+            #expect(abs(bounds.minX - rect.minX) < 0.001 && abs(bounds.maxX - rect.maxX) < 0.001, "\(kind) fills the width")
+            #expect(abs(bounds.minY - rect.minY) < 0.001 && abs(bounds.maxY - rect.maxY) < 0.001, "\(kind) fills the height")
+        }
+        #expect(corners(ShapeKind.triangle.path(in: rect)) == 3)
+        #expect(corners(ShapeKind.polygon.path(in: rect, sides: 7)) == 7)
+        #expect(corners(ShapeKind.star.path(in: rect, sides: 5)) == 10)
+        #expect(corners(ShapeKind.polygon.path(in: rect, sides: 1)) == 3, "fewer than three sides is clamped")
+        // The star's inner corners are at half its reach, so its middle is filled but between two points is not.
+        let star = ShapeKind.star.path(in: CGRect(x: 0, y: 0, width: 100, height: 100), sides: 5)
+        #expect(star.contains(CGPoint(x: 50, y: 50)) && !star.contains(CGPoint(x: 80, y: 15)))
+        // A radius rounds the triangle's corners, so its tip is cut away.
+        let rounded = ShapeKind.triangle.path(in: CGRect(x: 0, y: 0, width: 100, height: 100), cornerRadius: 10)
+        #expect(!rounded.contains(CGPoint(x: 50, y: 1)) && rounded.contains(CGPoint(x: 50, y: 50)))
+    }
+
+    @Test func aStrokeGrowsTheLayerAndKeepsItsWidthWhenScaled() async throws {
+        let session = makeSession()
+        session.shapeStrokeEnabled = true
+        session.shapeStrokeColor = PaletteColor(red: 0, green: 0, blue: 1)
+        session.shapeStrokeWidth = 4
+        session.shapeStrokeOptions.join = .round
+        session.shapeFilled = false
+        drag(session, from: CGPoint(x: 20, y: 20), to: CGPoint(x: 60, y: 50))
+        let layer = try #require(session.activeLayer)
+        // Half the stroke reaches outside the 40 × 30 box on every side.
+        #expect(layer.transform.origin == CGPoint(x: 18, y: 18) && layer.transform.size == CGSize(width: 44, height: 34))
+        let style = try #require(layer.liveShape?.style)
+        #expect(style.stroke?.width == 4 && style.filled == false && style.needsVersion17)
+        let pixel = try await pixels(session)
+        #expect(pixel(20, 35).alpha == 255 && pixel(20, 35).red == 0, "the blue stroke sits on the outline")
+        #expect(pixel(40, 35).alpha == 0, "no fill inside")
+
+        session.beginTransform()
+        var transform = try #require(session.transformEdit?.draft)
+        transform.size = CGSize(width: 88, height: 34)
+        session.previewTransform(transform)
+        session.commitTransform()
+        let image = try #require(session.activeLayer?.liveShape?.image)
+        let reference = try EditorSession.shapeImage(style, size: CGSize(width: 88, height: 34))
+        #expect(image.dataProvider?.data == reference.dataProvider?.data, "redrawn at the new size, not stretched")
+    }
+
+    @Test func pixelsModePaintsIntoTheActiveLayerAsOneUndoStep() async throws {
+        let session = makeSession()
+        session.shapeMode = .pixels
+        let count = session.history.undoCount
+        let layers = session.document?.layers.map(\.id)
+        session.beginShape(at: CGPoint(x: 10, y: 10))
+        session.dragShape(to: CGPoint(x: 30, y: 30), square: false, fromCenter: false)
+        session.finishShape()
+        for _ in 0..<200 where session.history.undoCount == count { try await Task.sleep(for: .milliseconds(10)) }
+        #expect(session.document?.layers.map(\.id) == layers, "no new layer")
+        #expect(session.history.undoCount == count + 1)
+        #expect(session.activeLayer?.liveShape == nil)
+        let pixel = try await pixels(session)
+        #expect(pixel(20, 20) == (255, 255) && pixel(35, 35).alpha == 0)
+    }
+
+    @Test func pathModeDrawsAWorkPathThatBecomesTheSelection() {
+        let session = makeSession()
+        session.shapeMode = .path
+        session.shapeKind = .ellipse
+        let count = session.history.undoCount
+        drag(session, from: CGPoint(x: 20, y: 20), to: CGPoint(x: 60, y: 60))
+        #expect(session.document?.layers.count == 1 && session.history.undoCount == count, "a path is not a layer")
+        let path = try? #require(session.workPath)
+        #expect(path?.boundingBoxOfPath == CGRect(x: 20, y: 20, width: 40, height: 40))
+        session.makeSelectionFromWorkPath()
+        #expect(session.selection?.path.contains(CGPoint(x: 40, y: 40)) == true)
+        #expect(session.selection?.path.contains(CGPoint(x: 21, y: 21)) == false, "the ellipse, not its box")
+        #expect(session.history.undoCount == count + 1)
+        session.shapeMode = .shape
+        #expect(session.workPath == nil, "leaving Path mode drops the work path")
+    }
+
+    @Test func customShapesKeepTheirProportionsWithShiftAndTheirNameOnTheLayer() async throws {
+        let session = makeSession()
+        session.shapeKind = .custom
+        let heart = try #require(ShapeLibrary.defaultGroup().shapes.first { $0.name == "Heart" })
+        session.customShape = heart
+        session.beginShape(at: CGPoint(x: 10, y: 10))
+        session.dragShape(to: CGPoint(x: 70, y: 20), square: true, fromCenter: false)
+        let rect = try #require(session.shapeDraft?.rect)
+        #expect(abs(rect.width / rect.height - heart.outline.aspect) < 0.05)
+        session.finishShape()
+        #expect(session.activeLayer?.name == "Heart 1")
+        #expect(session.activeLayer?.liveShape?.style.outline == heart.outline)
+    }
+
+    @Test func newShapeOptionsSurviveSavingAndNeedVersion17() async throws {
+        let session = makeSession()
+        session.shapeKind = .star
+        session.shapeSides = 7
+        session.shapeStrokeEnabled = true
+        session.shapeStrokeOptions = ShapeStrokeOptions(dash: .dashed, cap: .round, join: .bevel)
+        drag(session, from: CGPoint(x: 10, y: 10), to: CGPoint(x: 60, y: 60))
+        session.shapeKind = .custom
+        session.customShape = ShapeLibrary.defaultGroup().shapes.first
+        drag(session, from: CGPoint(x: 5, y: 5), to: CGPoint(x: 40, y: 40))
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("Shapes-\(UUID()).pbox")
+        defer { try? FileManager.default.removeItem(at: url) }
+        let snapshot = try #require(session.projectSnapshot())
+        try await ProjectStore.shared.save(snapshot, to: url)
+        let loaded = try await ProjectStore.shared.load(from: url)
+        let shapes = loaded.manifest.layers.compactMap(\.shape)
+        #expect(shapes.count == 2)
+        #expect(shapes.first?.kind == .star && shapes.first?.sides == 7 && shapes.first?.stroke?.options.dash == .dashed)
+        // Saved outlines are rounded to a millionth of the shape's box.
+        let outline = try #require(snapshot.manifest.layers.last?.shape?.outline)
+        let rounded = try JSONDecoder().decode(ShapeOutline.self, from: JSONEncoder().encode(outline))
+        #expect(shapes.last?.kind == .custom && shapes.last?.outline == rounded)
+        var older = snapshot.manifest
+        older.version = 16
+        await #expect(throws: (any Error).self) {
+            try await ProjectStore.shared.save(ProjectSnapshot(manifest: older, images: snapshot.images), to: url)
+        }
+    }
 }

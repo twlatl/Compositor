@@ -102,6 +102,17 @@ nonisolated enum DragBox {
             ? CGRect(x: anchor.x - abs(dx), y: anchor.y - abs(dy), width: abs(dx) * 2, height: abs(dy) * 2)
             : CGRect(x: min(anchor.x, anchor.x + dx), y: min(anchor.y, anchor.y + dy), width: abs(dx), height: abs(dy))
     }
+
+    /// As `rect(square: true)`, but keeping `aspect` (width over height) rather than making a square.
+    static func rect(from anchor: CGPoint, to point: CGPoint, aspect: CGFloat, fromCenter: Bool) -> CGRect {
+        guard aspect.isFinite, aspect > 0 else { return rect(from: anchor, to: point, square: true, fromCenter: fromCenter) }
+        var dx = point.x.rounded() - anchor.x, dy = point.y.rounded() - anchor.y
+        if abs(dx) > abs(dy) * aspect { dy = (dy < 0 ? -1 : 1) * (abs(dx) / aspect).rounded() }
+        else { dx = (dx < 0 ? -1 : 1) * (abs(dy) * aspect).rounded() }
+        return fromCenter
+            ? CGRect(x: anchor.x - abs(dx), y: anchor.y - abs(dy), width: abs(dx) * 2, height: abs(dy) * 2)
+            : CGRect(x: min(anchor.x, anchor.x + dx), y: min(anchor.y, anchor.y + dy), width: abs(dx), height: abs(dy))
+    }
 }
 
 /// A lasso outline being drawn, in document pixels. `cursor` is the polygonal lasso's

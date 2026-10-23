@@ -3,11 +3,13 @@ import AppKit
 
 struct ColorPaletteControls: View {
     let session: EditorSession
-    /// Whether this copy shows the floating color picker. The tool rail's does; the Color palette's, a second copy
-    /// of the same swatches, leaves it to that one so the picker isn't opened twice.
+    /// Whether this copy shows the color picker's popover. The tool rail's does; the Color palette's, a second copy
+    /// of the same swatches, leaves it to that one so the picker isn't opened twice. Its swatches still anchor it.
     var hostsPicker = true
     @State private var choosingMaskBackground: Bool?
-    @State private var pickerPanel = ColorPickerPanelController()
+    @State private var popover = ColorPopoverController()
+    @State private var foregroundAnchor = WellAnchor()
+    @State private var backgroundAnchor = WellAnchor()
     private let swatchSize: CGFloat = 24
     private let swatchOffset: CGFloat = 12
     var body: some View {
@@ -49,10 +51,16 @@ struct ColorPaletteControls: View {
                 }
             }.padding(16)
         }
+        // Every color well's picker is shown from here, pointing at the well that opened it (or at the foreground
+        // swatch, for one opened from a menu or a key).
         .onChange(of: session.colorPicker.map(ObjectIdentifier.init)) { _, _ in
             guard hostsPicker else { return }
-            if let picker = session.colorPicker { pickerPanel.show(picker, session: session) }
-            else { pickerPanel.close() }
+            popover.fallbackAnchor = foregroundAnchor.view
+            if let picker = session.colorPicker {
+                if !session.colorPickerHeadless { popover.show(picker, session: session) }
+            } else if popover.isShown {
+                popover.close()
+            }
         }
         .onChange(of: session.isMaskSelected) { _, masked in
             choosingMaskBackground = nil
@@ -64,7 +72,11 @@ struct ColorPaletteControls: View {
         let shape = RoundedRectangle(cornerRadius: 6, style: .continuous)
         return Button {
             if session.isMaskSelected { choosingMaskBackground = background }
-            else { session.openColorPicker(background: background) }
+            else {
+                session.clickColorWell((background ? backgroundAnchor : foregroundAnchor).view) {
+                    session.openColorPicker(background: background)
+                }
+            }
         } label: {
             shape
                 .fill(Color(nsColor: session.paletteColor(background: background).nsColor))
@@ -72,6 +84,7 @@ struct ColorPaletteControls: View {
                 .overlay { shape.strokeBorder(.black, lineWidth: 1) }
                 .frame(width: swatchSize, height: swatchSize)
                 .contentShape(shape)
+                .background(WellAnchorView(anchor: background ? backgroundAnchor : foregroundAnchor))
         }
         .buttonStyle(.plain).help(label).accessibilityLabel(label)
     }

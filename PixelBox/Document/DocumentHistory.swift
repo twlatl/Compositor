@@ -73,6 +73,23 @@ final class DocumentHistory {
         trim(current: document)
     }
 
+    /// Whether an edit named `name` may be folded into the last undo step: it's that step's own kind of edit, and
+    /// nothing has been done, undone or redone since.
+    func canAmendLast(_ name: String) -> Bool {
+        guard depth == 0, future.isEmpty, let last = past.last else { return false }
+        return last.name == name && last.after.revision == revision
+    }
+
+    /// Folds the edit just made into the last undo step, so a value being dragged or typed is one step however many
+    /// times it changes on the way. Check `canAmendLast` first.
+    func amendLast(document: CanvasDocument?, selection: UUID?) {
+        guard depth == 0, let last = past.last, last.after.revision == revision else { return }
+        revision = UUID()
+        past[past.count - 1] = Entry(name: last.name, before: last.before,
+                                     after: Snapshot(document: document, activeLayerID: selection, revision: revision))
+        trim(current: document)
+    }
+
     func undo() -> Snapshot? {
         guard canUndo, let entry = past.popLast() else { return nil }
         future.append(entry)

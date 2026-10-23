@@ -51,6 +51,7 @@ final class CanvasView: NSView {
         }
     }
     private let sampleRing = SampleRingOverlay()
+    private let loupe = EyedropperLoupe()
     private let lines = CanvasLinesOverlay()
     private var samplingOriginal = PaletteColor.black
     let session: EditorSession
@@ -89,12 +90,13 @@ final class CanvasView: NSView {
     private let transformOverlay: TransformOverlay
     private var displayedState: DisplayState?
     private var displayedTool: NavigationTool?
+    private var displayedPathSelectionMode = PathSelectionMode.path
     private var displayedPicking = false
     private var displayedTargeting = false
     private var optionHeld = false
     private var palettePicking: Bool { session.tool == .eyedropper || (optionHeld && (session.tool == .brush || session.tool == .spotHealing || session.tool == .gradient) && session.brushStroke == nil && gradientDrag == nil) }
     private var picking: Bool {
-        palettePicking || (session.colorPicker != nil && !session.pickingForDialog) || session.hueSampleMode != nil || session.levels?.sampleMode != nil
+        palettePicking || session.eyedropper != nil || session.hueSampleMode != nil || session.levels?.sampleMode != nil
             || session.colorRange != nil
             || session.filterEdit?.samplesWhiteBalance == true || session.filterEdit?.samplesPointColor == true
             || session.filterEdit?.samplesDefringe == true
@@ -156,8 +158,7 @@ final class CanvasView: NSView {
     /// The pointer arrow as a vector path, tip at the origin (y down), about the system arrow's size.
     private static let arrowPath: NSBezierPath = {
         let arrow = NSBezierPath()
-        for (index, point) in [(0, 0), (0, 16.5), (3.9, 12.8), (6.6, 19), (9.2, 17.9), (6.6, 11.8), (11.8, 11.8)].enumerated() {
-            let point = NSPoint(x: point.0, y: point.1)
+        for (index, point) in arrowOutline.enumerated() {
             if index == 0 { arrow.move(to: point) } else { arrow.line(to: point) }
         }
         arrow.close()
@@ -201,6 +202,13 @@ final class CanvasView: NSView {
     static let duplicateCursor = arrowCursor([(offset: 5, fill: .white, outline: .black), (offset: 0, fill: .black, outline: .white)])
     /// A white arrow over a transform handle that distorts when dragged (Cmd held, or already distorted).
     static let distortCursor = arrowCursor([(offset: 0, fill: .white, outline: .black)])
+    /// The Path Selection tool's pointers, as its icons in the tool rail: solid black for Path Selection, white for
+    /// Direct Selection.
+    static let pathSelectionCursor = arrowCursor([(offset: 0, fill: .black, outline: .white)])
+    static let directSelectionCursor = arrowCursor([(offset: 0, fill: .white, outline: .black)])
+    /// The arrow's corners, tip first (y down, about 12 × 19), shared by these pointers and the tool rail's icons.
+    static let arrowOutline: [CGPoint] = [(0, 0), (0, 16.5), (3.9, 12.8), (6.6, 19), (9.2, 17.9), (6.6, 11.8), (11.8, 11.8)]
+        .map { CGPoint(x: $0.0, y: $0.1) }
     /// Photoshop's Move pointer: the arrow with a small four-way arrow at its lower right. Shown wherever
     /// a press would drag a layer, away from the transform handles.
     static let moveCursor: NSCursor = {
@@ -606,10 +614,18 @@ final class CanvasView: NSView {
             updateTrackingAreas()
             window?.invalidateCursorRects(for: self)
         }
+        // Shift-A switches arrows without leaving the tool: the pointer changes where it is, not only on re-entering.
+        if displayedPathSelectionMode != session.pathSelectionMode {
+            displayedPathSelectionMode = session.pathSelectionMode
+            window?.invalidateCursorRects(for: self)
+            if session.tool == .pathSelection, session.document != nil, !picking, let window,
+               bounds.contains(convert(window.mouseLocationOutsideOfEventStream, from: nil)) { restoreToolCursor() }
+        }
         if displayedPicking != picking || displayedTargeting != session.hueTargeting {
             displayedPicking = picking
             displayedTargeting = session.hueTargeting
             samplingColor = false
+            if session.eyedropper == nil { loupe.isHidden = true }
             sampleRing.isHidden = true
             updateTrackingAreas()
             window?.invalidateCursorRects(for: self)
@@ -660,10 +676,11 @@ final class CanvasView: NSView {
         addSubview(transformOverlay)
         addSubview(brushCursor)
         addSubview(sampleRing)
+        addSubview(loupe)
         // Each overlay draws into its own layer. Without one, redrawing a transparent overlay (every crop
         // or transform drag, marching-ants tick, or cursor move) makes AppKit redraw the canvas beneath —
         // the whole checkerboard and layer composite. All three get layers so they keep their stacking order.
-        for overlay in [lines, transformOverlay, brushCursor, sampleRing] as [NSView] { overlay.wantsLayer = true }
+        for overlay in [lines, transformOverlay, brushCursor, sampleRing, loupe] as [NSView] { overlay.wantsLayer = true }
         lines.autoresizingMask = [.width, .height]
         lines.drawLines = { [weak self] dirtyRect in self?.drawLines(in: dirtyRect) }
         clipsToBounds = true
@@ -1245,30 +1262,48 @@ final class CanvasView: NSView {
         draftEffectsSource = nil
     }
 
-    /// The shape being dragged out with the Shape tool, drawn in the color it will be made in.
+    /// The shape being dragged out with the Shape tool, drawn as it will be made; in Path mode, just its outline.
     private func drawShapeDraft(scale: CGFloat, center: (CGPoint) -> CGPoint, in context: CGContext) {
         // A flat or upright line has a box with no height or width, which is not "empty" for this purpose.
         guard let draft = session.shapeDraft,
               draft.kind == .line ? (draft.rect.width > 0 || draft.rect.height > 0) : !draft.rect.isEmpty else { return }
-        let middle = center(CGPoint(x: draft.rect.midX, y: draft.rect.midY))
-        let rect = CGRect(x: middle.x - draft.rect.width * scale / 2, y: middle.y - draft.rect.height * scale / 2,
-                          width: draft.rect.width * scale, height: draft.rect.height * scale)
-        context.saveGState()
-        context.setFillColor(session.foregroundColor.nsColor.cgColor)
-        if draft.kind == .line {
-            guard let ends = session.shapeLineEnds else { context.restoreGState(); return }
-            let thickness = max(1, CGFloat(session.shapeLineWidth) * scale)
-            context.setStrokeColor(session.foregroundColor.nsColor.cgColor)
-            context.setLineWidth(thickness)
-            context.setLineCap(.round)
-            // Exactly the two points being dragged between, so the start never shifts.
-            context.move(to: center(ends.start))
-            context.addLine(to: center(ends.end))
-            context.strokePath()
-        } else {
-            context.addPath(draft.kind.path(in: rect, cornerRadius: draft.cornerRadius * scale, smoothing: draft.smoothing))
-            context.fillPath()
+        // Drawn in document pixels through the view's mapping, so strokes and corners scale exactly as they will.
+        let origin = center(.zero), across = center(CGPoint(x: 1, y: 0)), down = center(CGPoint(x: 0, y: 1))
+        var toView = CGAffineTransform(a: across.x - origin.x, b: across.y - origin.y, c: down.x - origin.x, d: down.y - origin.y,
+                                       tx: origin.x, ty: origin.y)
+        // Exactly the two points being dragged between, so a line's start never shifts.
+        let ends = session.shapeLineEnds
+        if draft.kind == .line, ends == nil { return }
+        if draft.mode == .path {
+            let outline: CGPath
+            if let ends {
+                let line = CGMutablePath()
+                line.move(to: ends.start)
+                line.addLine(to: ends.end)
+                outline = line
+            } else { outline = draft.style.outline(in: draft.rect) }
+            guard let path = outline.copy(using: &toView) else { return }
+            Self.strokeOutline(path, in: context)
+            return
         }
+        context.saveGState()
+        context.concatenate(toView)
+        if let ends { draft.style.drawLine(from: ends.start, to: ends.end, context: context) }
+        else { draft.style.draw(in: draft.rect, context: context) }
+        context.restoreGState()
+    }
+
+    /// A path outline as Photoshop shows one: a thin dark line with a light one inside it, visible on any image.
+    static func strokeOutline(_ path: CGPath, in context: CGContext) {
+        context.saveGState()
+        context.addPath(path)
+        context.setStrokeColor(NSColor.black.withAlphaComponent(0.8).cgColor)
+        context.setLineWidth(2)
+        context.strokePath()
+        context.addPath(path)
+        context.setStrokeColor(NSColor.white.cgColor)
+        context.setLineWidth(1)
+        context.strokePath()
         context.restoreGState()
     }
 
@@ -1462,6 +1497,7 @@ final class CanvasView: NSView {
             : session.tool == .move ? window.map { transformCursor(at: convert($0.mouseLocationOutsideOfEventStream, from: nil)) } ?? .arrow
             : session.tool == .type ? .iBeam
             : session.tool == .idle ? .arrow
+            : session.tool == .pathSelection ? (session.pathSelectionMode == .direct ? Self.directSelectionCursor : Self.pathSelectionCursor)
             : session.tool == .zoom ? (optionHeld ? Self.zoomOutCursor : Self.zoomInCursor)
             : .crosshair
     }
@@ -1594,6 +1630,7 @@ final class CanvasView: NSView {
     override func mouseEntered(with event: NSEvent) { mouseMoved(with: event) }
     override func mouseExited(with event: NSEvent) {
         session.filterEdit?.cameraRawReadout = nil
+        loupe.isHidden = true
         brushPointer = nil
         updateBrushCursor()
         // Tools set their cursor directly while over the canvas, so put the arrow back on the
@@ -1610,7 +1647,11 @@ final class CanvasView: NSView {
             session.updateCameraRawReadout(at: session.viewport.documentPoint(from: point, documentSize: document.size))
         }
         optionHeld = event.modifierFlags.contains(.option)
-        if picking { pickCursor.set(); return }
+        if picking {
+            pickCursor.set()
+            updateLoupe(at: convert(event.locationInWindow, from: nil))
+            return
+        }
         if session.tool.isSelectionTool {
             // Keys may have changed while the app was in the background.
             session.updateHeldSelectionKeys(shift: event.modifierFlags.contains(.shift), option: event.modifierFlags.contains(.option))
@@ -1626,6 +1667,8 @@ final class CanvasView: NSView {
         brushPointer = convert(event.locationInWindow, from: nil)
         updateBrushCursor()
         if session.tool == .move { updateTransformCursor(at: convert(event.locationInWindow, from: nil), flags: event.modifierFlags) }
+        // The arrow follows Shift-A even when the cursor rects haven't been rebuilt yet.
+        else if session.tool == .pathSelection, !spaceHeld { toolCursor.set() }
         else { super.mouseMoved(with: event) }
     }
     override func cursorUpdate(with event: NSEvent) {
@@ -1635,6 +1678,7 @@ final class CanvasView: NSView {
         // Cursor-update events carry no modifier flags (AppKit sends one after every key change), so read
         // the keys as they are now; the event's flags would undo Option's duplicate cursor straight away.
         else if session.tool == .move { updateTransformCursor(at: convert(event.locationInWindow, from: nil), flags: NSEvent.modifierFlags) }
+        else if session.tool == .pathSelection, !spaceHeld { toolCursor.set() }
         else { super.cursorUpdate(with: event) }
     }
     private func updateTransformCursor(at point: CGPoint, flags: NSEvent.ModifierFlags = NSEvent.modifierFlags) {
@@ -1794,7 +1838,7 @@ final class CanvasView: NSView {
             return
         }
         if picking, !spaceHeld {
-            if session.colorPicker != nil || (palettePicking && session.hueSampleMode == nil) {
+            if session.eyedropper != nil || (palettePicking && session.hueSampleMode == nil) {
                 samplingOriginal = session.colorPicker?.color ?? session.foregroundColor
                 samplingColor = true
                 sampleColor(at: point)
@@ -1850,6 +1894,12 @@ final class CanvasView: NSView {
         } else if session.tool == .shape, let document = session.document {
             session.beginShape(at: snappedCorner(session.viewport.documentPoint(from: point, documentSize: document.size),
                                                  flags: event.modifierFlags))
+        } else if session.tool == .pathSelection, let document = session.document {
+            // Points are easy to hit at any zoom: a few screen points either way.
+            session.beginPathDrag(at: session.viewport.documentPoint(from: point, documentSize: document.size),
+                                  tolerance: 5 / max(session.viewport.pointsPerPixel, 0.0001),
+                                  extend: event.modifierFlags.contains(.shift))
+            synchronizeDisplay()
         } else if session.tool == .crop {
             beginCropDrag(at: point)
         } else if session.tool == .move {
@@ -1936,6 +1986,12 @@ final class CanvasView: NSView {
                 dragMarqueeDraft(to: pixel, flags: event.modifierFlags)
                 updateMarqueeAutoscroll(at: point)
             }
+            synchronizeDisplay()
+            return
+        }
+        if session.pathDrag != nil, lastDragPoint == nil, let document = session.document {
+            session.dragPath(to: session.viewport.documentPoint(from: point, documentSize: document.size),
+                             breaksHandle: event.modifierFlags.contains(.option))
             synchronizeDisplay()
             return
         }
@@ -2117,7 +2173,12 @@ final class CanvasView: NSView {
         if samplingColor {
             samplingColor = false
             sampleRing.isHidden = true
-            if session.colorPicker != nil { ColorPickerPanelController.refocus() }
+            // A well takes the color it last sampled; the picker has been following it already, and stays open.
+            if session.eyedropper != nil {
+                session.finishEyedropper(commit: true)
+                loupe.isHidden = true
+                restoreToolCursor()
+            }
             return
         }
         if session.brushStroke != nil || session.warpStroke != nil, !session.isProjectBusy {
@@ -2133,6 +2194,10 @@ final class CanvasView: NSView {
         }
         if session.shapeDraft != nil {
             session.finishShape()
+            synchronizeDisplay()
+        }
+        if session.pathDrag != nil {
+            session.endPathDrag()
             synchronizeDisplay()
         }
         if hueTargetStart != nil {
@@ -2203,6 +2268,18 @@ final class CanvasView: NSView {
         let physicalKey = event.keyCode
         guard let event = ShortcutSettings.shared.canvasEvent(event) else { return }
         if handleKeyboardZoom(event) { return }
+        if event.keyCode == 53, session.eyedropper != nil {
+            // Escape puts a well's eyedropper away without picking.
+            session.finishEyedropper(commit: false)
+            loupe.isHidden = true
+            synchronizeDisplay()
+            return
+        }
+        // The picker stays open while the canvas is clicked; Escape here puts it away too, with its original color.
+        if event.keyCode == 53, session.cancelColorPicker() {
+            synchronizeDisplay()
+            return
+        }
         if event.keyCode == 53, textBoxAnchor != nil { textBoxAnchor = nil; textBoxRect = nil; needsDisplay = true; return }
         if event.keyCode == 53, session.textDraft != nil { session.cancelText(); return }
         // A drag session swallows the flagsChanged that says Option was let go, which left the canvas thinking it
@@ -2232,6 +2309,14 @@ final class CanvasView: NSView {
             refreshLassoCursor()
         } else if session.shapeDraft != nil, event.keyCode == 53 {
             session.cancelShape()
+            synchronizeDisplay()
+        } else if session.tool == .shape, session.workPath != nil, [53, 36, 76].contains(event.keyCode) {
+            // Return makes the work path a selection, as ⌘Return does in Photoshop; Escape drops it.
+            if event.keyCode == 53 { session.clearWorkPath() } else { session.makeSelectionFromWorkPath() }
+            synchronizeDisplay()
+        } else if session.tool == .pathSelection, !session.selectedPathKnots.isEmpty, [53, 51, 117].contains(event.keyCode) {
+            // Delete removes the selected anchor points; Escape just lets go of them.
+            if event.keyCode == 53 { session.selectedPathKnots = [] } else { session.deleteSelectedPathKnots() }
             synchronizeDisplay()
         } else if session.gradientEdit != nil, event.keyCode == 53 {
             gradientDrag = nil
@@ -2314,7 +2399,10 @@ final class CanvasView: NSView {
             // Shift turns [ and ] into { and }.
             case "{" where session.tool.isBrushTool: session.changeBrushHardness(increase: false)
             case "}" where session.tool.isBrushTool: session.changeBrushHardness(increase: true)
-            case "a": session.selectTool(.idle)
+            case "a":
+                if event.modifierFlags.contains(.shift), session.tool == .pathSelection { session.togglePathSelectionMode() }
+                else { session.selectTool(.pathSelection) }
+                synchronizeDisplay()
             case "r": session.selectTool(.blur)
             case "c": session.selectTool(.crop)
             case "v": session.selectTool(.move)
@@ -2522,17 +2610,31 @@ final class CanvasView: NSView {
         return CGPoint(x: anchor.x + cos(angle) * length, y: anchor.y + sin(angle) * length)
     }
 
+    /// The eyedropper's magnifier over the canvas pixels under `point` (view points).
+    private func updateLoupe(at point: CGPoint) {
+        guard session.eyedropper != nil, let document = session.document else { loupe.isHidden = true; return }
+        let documentPoint = session.viewport.documentPoint(from: point, documentSize: document.size)
+        loupe.patch = session.compositePatch(around: documentPoint)
+        loupe.color = session.sampleCompositeColor(at: documentPoint)
+        loupe.show(at: point, in: bounds)
+    }
+
     private func sampleColor(at point: CGPoint) {
         guard let document = session.document else { return }
         Self.eyedropperCursor.set()
         let documentPoint = session.viewport.documentPoint(from: point, documentSize: document.size)
-        if session.colorPicker != nil { session.sampleIntoColorPicker(at: documentPoint) }
-        else if session.canEditPalette, let color = session.sampleCompositeColor(at: documentPoint) {
+        if session.eyedropper != nil {
+            // A well's or the picker's eyedropper shows its magnifier rather than the ring.
+            session.previewEyedropper(at: documentPoint)
+            updateLoupe(at: point)
+            return
+        }
+        if session.canEditPalette, let color = session.sampleCompositeColor(at: documentPoint) {
             session.foregroundColor = color
         }
         sampleRing.frame = CGRect(x: point.x - 58, y: point.y - 58, width: 116, height: 116)
         sampleRing.original = samplingOriginal
-        sampleRing.sampled = session.colorPicker?.color ?? session.foregroundColor
+        sampleRing.sampled = session.foregroundColor
         sampleRing.isHidden = !session.showsSampleRing
         sampleRing.needsDisplay = true
     }
@@ -2718,7 +2820,7 @@ extension CanvasView {
     /// The shape being dragged out, drawn by `drawShapeDraft` into a bitmap just big enough for it, in frame pixels.
     private func shapeDraftImage(placement: GPUPlacement) -> CIImage? {
         guard let draft = session.shapeDraft, let renderer = GPUCanvasRenderer.shared else { return nil }
-        let reach = CGFloat(session.shapeLineWidth) * placement.scale + 4
+        let reach = draft.style.reach * placement.scale + 4
         let box = draft.rect.applying(placement.mapping).insetBy(dx: -reach, dy: -reach).integral
         guard box.width >= 1, box.height >= 1, box.width * box.height <= DocumentLimits.maxSurfaceExtent,
               let context = try? BrushRaster.context(width: Int(box.width), height: Int(box.height), mask: false) else { return nil }
@@ -2964,13 +3066,18 @@ extension CanvasView {
                 return CIColor(red: c[0], green: c.count > 2 ? c[1] : c[0], blue: c.count > 2 ? c[2] : c[0], alpha: c.last ?? 1,
                                colorSpace: placement.renderer.space) ?? .black
             }
-            guard fill.colors.count == 2 else { return nil }
+            // Core Image's gradients have two colors at the ends; anything more is drawn by the Core Graphics canvas.
+            guard fill.colors.count == 2, fill.locations == [0, 1] else { unsupported = true; return nil }
             let shading: CIImage
             switch fill.shape {
             case .linear:
                 shading = CIImage.empty().applyingFilter("CILinearGradient", parameters: [
                     "inputPoint0": CIVector(cgPoint: fill.start), "inputPoint1": CIVector(cgPoint: fill.end),
                     "inputColor0": color(fill.colors[0]), "inputColor1": color(fill.colors[1])])
+            case .angle:
+                // Core Image has no sweep; the Core Graphics canvas draws it.
+                unsupported = true
+                return nil
             case .radial:
                 shading = CIImage.empty().applyingFilter("CIRadialGradient", parameters: [
                     kCIInputCenterKey: CIVector(cgPoint: fill.start), "inputRadius0": 0,

@@ -92,15 +92,15 @@ struct CanvasDocument: Equatable {
 }
 
 enum NavigationTool: String, CaseIterable {
-    case move, marquee, lasso, wand, crop, brush, spotHealing, cloneStamp, blur, gradient, shape, type, eyedropper, hand, zoom
-    /// No tool (A): nothing in the tool rail is selected and canvas clicks do nothing.
+    case move, marquee, lasso, wand, crop, brush, spotHealing, cloneStamp, blur, gradient, pathSelection, shape, type, eyedropper, hand, zoom
+    /// No tool (in the command palette): nothing in the tool rail is selected and canvas clicks do nothing.
     case idle
     /// Tools that paint with the brush tip, sharing its size, hardness, opacity, and keys.
     var isBrushTool: Bool { self == .brush || self == .spotHealing || self == .cloneStamp || self == .blur }
     /// Tools that draw and edit selections, sharing modifiers, moving, and nudging.
     var isSelectionTool: Bool { self == .marquee || self == .lasso || self == .wand }
-    var symbol: String { self == .type ? "textformat" : self == .eyedropper ? "eyedropper" : self == .marquee ? "rectangle.dashed" : self == .lasso ? "lasso" : self == .wand ? "wand.and.stars" : self == .brush ? "paintbrush.pointed" : self == .spotHealing ? "bandage" : self == .cloneStamp ? "seal" : self == .blur ? "drop" : self == .gradient ? "square.bottomhalf.filled" : self == .shape ? "square.on.circle" : self == .crop ? "crop" : self == .move ? "arrow.up.left.and.arrow.down.right" : self == .hand ? "hand.draw" : "magnifyingglass" }
-    var label: String { self == .type ? "Type (T)" : self == .eyedropper ? "Eyedropper (I)" : self == .marquee ? "Marquee (M)" : self == .lasso ? "Lasso (L)" : self == .wand ? "Magic (W) · Tab switches Wand and Object" : self == .brush ? "Brush (B) · Eraser (E)" : self == .spotHealing ? "Spot Healing Brush (J)" : self == .cloneStamp ? "Clone Stamp (S) · Option-click sets the source" : self == .blur ? "Smear (R)" : self == .gradient ? "Gradient (G)" : self == .shape ? "Shape (U) · Shift-U switches Rectangle/Ellipse" : self == .crop ? "Crop (C)" : self == .move ? "Move / Transform (V)" : self == .hand ? "Hand (H)" : "Zoom (Z)" }
+    var symbol: String { self == .type ? "textformat" : self == .eyedropper ? "eyedropper" : self == .marquee ? "rectangle.dashed" : self == .lasso ? "lasso" : self == .wand ? "wand.and.stars" : self == .brush ? "paintbrush.pointed" : self == .spotHealing ? "bandage" : self == .cloneStamp ? "seal" : self == .blur ? "drop" : self == .gradient ? "square.bottomhalf.filled" : self == .shape ? "square.on.circle" : self == .pathSelection ? "cursorarrow" : self == .crop ? "crop" : self == .move ? "arrow.up.left.and.arrow.down.right" : self == .hand ? "hand.draw" : "magnifyingglass" }
+    var label: String { self == .type ? "Type (T)" : self == .eyedropper ? "Eyedropper (I)" : self == .marquee ? "Marquee (M)" : self == .lasso ? "Lasso (L)" : self == .wand ? "Magic (W) · Tab switches Wand and Object" : self == .brush ? "Brush (B) · Eraser (E)" : self == .spotHealing ? "Spot Healing Brush (J)" : self == .cloneStamp ? "Clone Stamp (S) · Option-click sets the source" : self == .blur ? "Smear (R)" : self == .gradient ? "Gradient (G)" : self == .shape ? "Shape (U) · Shift-U steps through the shapes · Hold for more shapes" : self == .pathSelection ? "Path Selection (A) · Shift-A switches to Direct Selection · Hold for both" : self == .crop ? "Crop (C)" : self == .move ? "Move / Transform (V)" : self == .hand ? "Hand (H)" : "Zoom (Z)" }
 }
 
 @Observable
@@ -244,8 +244,40 @@ final class EditorSession {
     /// Corner radius in pixels for rectangles the Shape tool draws; 0 keeps the corners square.
     var shapeCornerRadius: Double = 0
     var shapeSmoothing = false
-    /// A Line shape's thickness in document pixels.
+    /// A Line shape's thickness (its weight) in document pixels.
     var shapeLineWidth: Double = 4
+    var shapeMode = ShapeMode.shape { didSet { if shapeMode != .path { workPath = nil } } }
+    /// Shapes fill with the foreground color unless the fill is turned off.
+    var shapeFilled = true
+    var shapeStrokeEnabled = false
+    var shapeStrokeColor = PaletteColor.black
+    /// What new shapes fill and stroke with instead of a color, when a gradient is chosen.
+    var shapeFillGradient: ColorGradient?
+    var shapeStrokeGradient: ColorGradient?
+    /// The stroke's width in document pixels.
+    var shapeStrokeWidth: Double = 3
+    /// Dashes, ends and corners, for strokes and lines alike.
+    var shapeStrokeOptions = ShapeStrokeOptions()
+    /// A polygon's sides, or a star's points.
+    var shapeSides = 5
+    /// What the Custom Shape tool draws, picked from the shape library.
+    var customShape: CustomShape? = ShapeLibrary.shared.firstShape
+    /// The outline Path mode drew, in document pixels, until it is made a selection or replaced.
+    var workPath: CGPath?
+    var pathSelectionMode = PathSelectionMode.path
+    /// The active shape's anchor points picked with Direct Selection.
+    var selectedPathKnots: Set<PathKnot> = []
+    /// A shape's path, or some of its points, being dragged with the Path Selection tool.
+    var pathDrag: PathDrag?
+    /// A color well's eyedropper, or the picker's, waiting for a click on the canvas; and the color it last sampled.
+    var eyedropper: EyedropperRequest?
+    @ObservationIgnored var eyedropperColor: PaletteColor?
+    /// Set while a well's eyedropper opens and closes the picker in one go, so no popover is shown for it.
+    @ObservationIgnored var colorPickerHeadless = false
+    /// The view the picker's popover points at: the well that opened it.
+    @ObservationIgnored weak var colorPickerAnchor: NSView?
+    /// The last change the tool bar made to a shape layer, so the same value changed again soon after joins its undo step.
+    @ObservationIgnored var lastShapeRestyle: (layerID: UUID, name: String, time: Date)?
     /// The shape being dragged out with the Shape tool, before it becomes a layer.
     var shapeDraft: ShapeDraft?
     var selectionModeChoice = SelectionMode.replace
@@ -277,6 +309,8 @@ final class EditorSession {
     var colorRange: ColorRangeEdit? { didSet { resumeFileRequests() } }
     /// The dialog whose color the picker is open on (`ColorPickerTarget.dialog`).
     @ObservationIgnored var dialogColorChange: ((PaletteColor) -> Void)?
+    /// A dialog's color-or-gradient picker hears the working paint as it changes, the chosen one, or the original.
+    @ObservationIgnored var dialogPaintChange: ((Paint) -> Void)?
     /// A dialog with its own zoomable preview (Export JPEG) is open: the View menu's zoom commands zoom that instead.
     @ObservationIgnored var previewZoom: ((PreviewZoomCommand) -> Void)?
     /// The text's style before the font menu started previewing faces on it (see `previewFont`).
@@ -399,14 +433,14 @@ final class EditorSession {
         effectSelection = nil
         if id != activeLayerID, !finishText() { return }
         guard brushStroke == nil, warpStroke == nil, levels == nil else { return }
-        if id != activeLayerID { commitTransform(); resolveGradient() }
+        if id != activeLayerID { commitTransform(); resolveGradient(); selectedPathKnots = [] }
         activeLayerID = id
         revealActiveLayer()
     }
     func selectTool(_ value: NavigationTool) {
         if tool != value, !finishText() { return }
         guard !isProjectBusy, brushStroke == nil, warpStroke == nil, levels == nil else { return }
-        if tool != value { commitTransform(); cancelCrop(); resolveGradient(); cancelLasso(); cancelShape() }
+        if tool != value { commitTransform(); cancelCrop(); resolveGradient(); cancelLasso(); cancelShape(); endPathDrag() }
         let from = Self.tipFamily(tool), to = Self.tipFamily(value)
         if from != to, let parked = parkedBrushTips[to] {
             parkedBrushTips[from] = (brushSettings.diameter, brushSettings.hardness, brushSettings.opacity)
@@ -444,6 +478,7 @@ final class EditorSession {
         case .wand: wandMode = next(wandMode)
         case .lasso: toggleLassoKind()
         case .shape: toggleShapeKind()
+        case .pathSelection: togglePathSelectionMode()
         case .brush: brushMode = next(brushMode)
         case .blur: blurMode = next(blurMode)
         case .spotHealing: spotHealingMode = next(spotHealingMode)

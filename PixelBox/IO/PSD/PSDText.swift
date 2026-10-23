@@ -33,7 +33,7 @@ nonisolated enum PSDText {
 
     static func parse(extra: [String: Data]) -> Source? {
         guard let data = extra["TySh"] ?? extra["tySh"], data.count <= 8_000_000 else { return nil }
-        var reader = Reader(data: data)
+        var reader = PSDDescriptorReader(data: data)
         guard reader.u16() == 1 else { return nil }
         guard let xx = reader.f64(), let xy = reader.f64(), let yx = reader.f64(),
               let yy = reader.f64(), let tx = reader.f64(), let ty = reader.f64(),
@@ -501,16 +501,16 @@ private nonisolated struct EngineCursor {
     }
 }
 
-private nonisolated enum DescriptorValue {
+nonisolated enum PSDDescriptorValue {
     case text(String)
     case number(Double)
     case enumeration(String)
     case data(Data)
-    case descriptor([String: DescriptorValue])
-    case list([DescriptorValue])
+    case descriptor([String: PSDDescriptorValue])
+    case list([PSDDescriptorValue])
 }
 
-private nonisolated extension Dictionary where Key == String, Value == DescriptorValue {
+private nonisolated extension Dictionary where Key == String, Value == PSDDescriptorValue {
     func string(_ key: String) -> String? {
         if case .text(let text) = self[key] { return text }
         return nil
@@ -536,23 +536,28 @@ private nonisolated extension Dictionary where Key == String, Value == Descripto
 }
 
 /// Descriptor walker from the same specification (class and keys are length-prefixed, or 4 bytes when the length is 0).
-private nonisolated struct Reader {
+nonisolated struct PSDDescriptorReader {
     let data: Data
     var offset = 0
     var remaining: Int { data.count - offset }
 
-    mutating func descriptor(versioned: Bool) -> [String: DescriptorValue]? {
+    mutating func descriptor(versioned: Bool) -> [String: PSDDescriptorValue]? {
+        classedDescriptor(versioned: versioned)?.items
+    }
+
+    /// A descriptor along with its class, which says what kind of object it is when its keys don't.
+    mutating func classedDescriptor(versioned: Bool) -> (classID: String, items: [String: PSDDescriptorValue])? {
         if versioned, u32() != 16 { return nil }
-        guard unicode() != nil, identifier() != nil, let count = u32(), count <= 10_000 else { return nil }
-        var items: [String: DescriptorValue] = [:]
+        guard unicode() != nil, let classID = identifier(), let count = u32(), count <= 10_000 else { return nil }
+        var items: [String: PSDDescriptorValue] = [:]
         for _ in 0..<Int(count) {
             guard let key = identifier(), let type = fourCC(), let value = value(type) else { return nil }
             items[key] = value
         }
-        return items
+        return (classID, items)
     }
 
-    mutating func value(_ type: String) -> DescriptorValue? {
+    mutating func value(_ type: String) -> PSDDescriptorValue? {
         switch type {
         case "doub":
             guard let number = f64() else { return nil }
@@ -584,7 +589,7 @@ private nonisolated struct Reader {
             return .descriptor(nested)
         case "VlLs":
             guard let count = u32(), count <= 10_000 else { return nil }
-            var items: [DescriptorValue] = []
+            var items: [PSDDescriptorValue] = []
             for _ in 0..<Int(count) {
                 guard let itemType = fourCC(), let item = value(itemType) else { return nil }
                 items.append(item)

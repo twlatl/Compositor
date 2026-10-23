@@ -209,14 +209,22 @@ extension CommandPaletteEntry {
             ("Gradient", "G", .gradient, nil),
             ("Rectangle", "U", .shape, { $0.shapeKind = .rectangle }),
             ("Ellipse", "U", .shape, { $0.shapeKind = .ellipse }),
+            ("Triangle", "U", .shape, { $0.shapeKind = .triangle }),
+            ("Polygon", "U", .shape, { $0.shapeKind = .polygon }),
+            ("Star", "U", .shape, { $0.shapeKind = .star }),
             ("Line", "U", .shape, { $0.shapeKind = .line }),
+            ("Custom Shape", "U", .shape, { $0.shapeKind = .custom }),
+            ("Path Selection", "A", .pathSelection, { $0.pathSelectionMode = .path }),
+            ("Direct Selection", "A", .pathSelection, { $0.pathSelectionMode = .direct }),
             ("Type", "T", .type, nil),
             ("Eyedropper", "I", .eyedropper, nil),
             ("Hand", "H", .hand, nil),
             ("Zoom", "Z", .zoom, nil),
+            // A belonged to it before Path Selection took the key.
+            ("No Tool", "", .idle, nil),
         ]
         return tools.map { name, key, tool, setup in
-            CommandPaletteEntry(id: "Tool › \(name)", shortcut: key, isEnabled: session.document != nil,
+            CommandPaletteEntry(id: "Tool › \(name)", shortcut: key.isEmpty ? nil : key, isEnabled: session.document != nil,
                                 perform: { [weak session] in
                                     guard let session else { return }
                                     session.selectTool(tool)

@@ -70,37 +70,46 @@ nonisolated struct ExposureSettings: Codable, Equatable, Sendable {
     }
 }
 
-/// Gradient Map: each pixel's brightness picks a color between `shadows` and `highlights` (the other
-/// way round when reversed); alpha is kept.
+/// Gradient Map: each pixel's brightness picks a color along a gradient, from the shadows' end to the highlights'
+/// (the other way round when reversed); alpha is kept. Older settings have only the two ends, `shadows` and
+/// `highlights`; from version 18 `stops` can hold any number of colors, with midpoints. Only the stops' colors are
+/// used, not their opacity.
 nonisolated struct GradientMapSettings: Codable, Equatable, Sendable {
     var shadows = AdjustmentColor(red: 0, green: 0, blue: 0)
     var highlights = AdjustmentColor(red: 1, green: 1, blue: 1)
     var reversed = false
-    var isValid: Bool { shadows.isValid && highlights.isValid }
+    var stops: ColorGradient? = nil
+    var isValid: Bool { shadows.isValid && highlights.isValid && (stops?.isValid ?? true) }
     var normalized: Self {
         var result = self
         result.shadows = shadows.clamped
         result.highlights = highlights.clamped
         return result
     }
+    /// The gradient the tones map through, before reversing. Setting it keeps `shadows` and `highlights` at its ends.
+    var gradient: ColorGradient {
+        get { stops ?? ColorGradient(PaletteColor(shadows), PaletteColor(highlights)) }
+        set {
+            let order = newValue.sorted
+            // Two even stops at the ends are just the two colors, as older projects can read them. Opacity isn't used.
+            stops = newValue.isSimple && order.allSatisfy({ $0.role == nil }) ? nil : newValue
+            if let first = order.first { shadows = AdjustmentColor(first.color) }
+            if let last = order.last { highlights = AdjustmentColor(last.color) }
+        }
+    }
     /// The colors for the darkest and lightest tones, in the order they apply.
     var ends: (dark: AdjustmentColor, light: AdjustmentColor) { reversed ? (highlights, shadows) : (shadows, highlights) }
     func apply(_ image: CGImage) throws -> CGImage {
         guard isValid else { throw ProjectError.invalid }
-        let (dark, light) = ends
-        // Split into explicitly typed steps: as one expression the type checker times out (Xcode 26.1).
-        func channel(_ from: Double, _ to: Double, _ t: Double) -> UInt8 {
-            let value: Double = from + (to - from) * t
-            let scaled: Double = (value * 255).rounded()
-            return UInt8(min(255.0, max(0.0, scaled)))
-        }
+        let mapped = reversed ? gradient.reversed : gradient
+        func channel(_ value: CGFloat) -> UInt8 { UInt8(min(255, max(0, (value * 255).rounded()))) }
         var table = [UInt8]()
         table.reserveCapacity(256 * 3)
         for index in 0...255 {
-            let t: Double = Double(index) / 255
-            table.append(channel(dark.red, light.red, t))
-            table.append(channel(dark.green, light.green, t))
-            table.append(channel(dark.blue, light.blue, t))
+            let color = mapped.value(at: CGFloat(index) / 255).color
+            table.append(channel(color.red))
+            table.append(channel(color.green))
+            table.append(channel(color.blue))
         }
         return try ImageAdjustmentPixels.run(image) { pixels, width, height, stride in
             adjust_gradient_map(pixels, width, height, stride, table)
@@ -207,4 +216,8 @@ nonisolated struct GrainSettings: Codable, Equatable, Sendable {
                          Double(origin.x), Double(origin.y), Double(unitsPerPixel))
         }
     }
+}
+
+extension PaletteColor {
+    init(_ color: AdjustmentColor) { self.init(red: CGFloat(color.red), green: CGFloat(color.green), blue: CGFloat(color.blue)) }
 }
