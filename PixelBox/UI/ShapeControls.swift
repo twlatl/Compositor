@@ -43,8 +43,6 @@ struct ShapeControls: View {
 /// otherwise those the next shape will be drawn with. Changing a layer's sets the tool's too, as in Photoshop.
 struct ShapeStyleControls: View {
     @Bindable var session: EditorSession
-    @State private var showsFill = false
-    @State private var showsStroke = false
     @State private var showsStrokeOptions = false
     @State private var showsShapes = false
 
@@ -121,50 +119,35 @@ struct ShapeStyleControls: View {
         }
     }
 
-    /// Fill and stroke, or a line's color and weight.
+    /// Fill and stroke, each switched on or off beside its well, or a line's color and weight.
     @ViewBuilder private var paint: some View {
         let fillColor = target?.color ?? session.foregroundColor
         HStack(spacing: 6) {
-            Text(kind == .line ? "Color:" : "Fill:")
-            Button { showsFill = true } label: {
-                Swatch(color: fillColor, enabled: kind == .line || filled.wrappedValue)
+            if kind == .line {
+                Text("Color:")
+            } else {
+                Toggle("Fill:", isOn: filled).toggleStyle(.checkbox)
+                    .help(target != nil ? "Fill the selected shape" : "Fill new shapes")
             }
-            .buttonStyle(.plain)
-            .accessibilityLabel(kind == .line ? "Line color" : "Fill")
-            .help(target != nil ? "The selected shape's fill" : kind == .line ? "Lines are drawn in the foreground color" : "Shapes fill with the foreground color")
-            .popover(isPresented: $showsFill, arrowEdge: .bottom) {
-                VStack(alignment: .leading, spacing: 10) {
-                    if kind != .line { Toggle("Fill", isOn: filled).toggleStyle(.checkbox) }
-                    Button(target != nil ? "Fill Color…" : "Foreground Color…") {
-                        showsFill = false
-                        if target == nil { session.shapeFilled = true }
-                        session.openFillColorPicker()
-                    }
-                }
-                .padding(14)
+            // One well for a color or a gradient, so its picker stays open while it switches between them.
+            ColorWell(title: kind == .line ? "Line color" : "Fill color", color: fillColor,
+                      gradient: target.map(\.fillGradient) ?? session.shapeFillGradient, session: session) {
+                if target == nil { session.shapeFilled = true }
+                session.openFillColorPicker()
             }
+            .opacity(kind == .line || filled.wrappedValue ? 1 : 0.45)
         }
         if kind == .line {
             field("Weight", systemImage: nil, value: lineWeight, range: 1...5000, unit: "px", help: "How thick the line is")
         } else {
             HStack(spacing: 6) {
-                Text("Stroke:")
-                Button { showsStroke = true } label: {
-                    Swatch(color: target?.stroke?.color ?? session.shapeStrokeColor, enabled: stroked.wrappedValue, outlined: true)
+                Toggle("Stroke:", isOn: stroked).toggleStyle(.checkbox)
+                    .help("A stroke along the shape's outline")
+                ColorWell(title: "Stroke color", color: target?.stroke?.color ?? session.shapeStrokeColor,
+                          gradient: target != nil ? target?.stroke?.gradient : session.shapeStrokeGradient, session: session) {
+                    session.openStrokeColorPicker()
                 }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Stroke")
-                .help("A stroke along the shape's outline")
-                .popover(isPresented: $showsStroke, arrowEdge: .bottom) {
-                    VStack(alignment: .leading, spacing: 10) {
-                        Toggle("Stroke", isOn: stroked).toggleStyle(.checkbox)
-                        Button("Stroke Color…") {
-                            showsStroke = false
-                            session.openStrokeColorPicker()
-                        }
-                    }
-                    .padding(14)
-                }
+                .opacity(stroked.wrappedValue ? 1 : 0.45)
             }
             field(nil, systemImage: nil, value: strokeWidth, range: 0...1000, unit: "px", help: "The stroke's width")
                 .disabled(!stroked.wrappedValue)
@@ -233,37 +216,6 @@ struct ShapeStyleControls: View {
             if let unit { text.unitSuffix(unit) } else { text }
         }
         .help(help)
-    }
-}
-
-/// A color swatch, struck through when it's off. Outlined, it reads as a stroke: a ring of the color.
-private struct Swatch: View {
-    var color: PaletteColor
-    var enabled: Bool
-    var outlined = false
-
-    var body: some View {
-        let shape = RoundedRectangle(cornerRadius: 3, style: .continuous)
-        ZStack {
-            if enabled {
-                if outlined {
-                    shape.fill(Color(nsColor: color.nsColor))
-                    RoundedRectangle(cornerRadius: 1).fill(Color.white).frame(width: 18, height: 6)
-                } else {
-                    shape.fill(Color(nsColor: color.nsColor))
-                }
-            } else {
-                shape.fill(Color.white)
-                Path { path in
-                    path.move(to: CGPoint(x: 0, y: 18))
-                    path.addLine(to: CGPoint(x: 36, y: 0))
-                }
-                .stroke(Color.red, lineWidth: 1.5)
-            }
-        }
-        .frame(width: 36, height: 18)
-        .clipShape(shape)
-        .overlay { shape.strokeBorder(.black.opacity(0.5), lineWidth: 1) }
     }
 }
 

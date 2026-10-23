@@ -205,9 +205,9 @@ struct ImageAdjustmentTests {
         #expect(try pixels(try #require(session.activeLayer?.asset?.image)) == pixels(base))
     }
 
-    /// Gradient Map's colors open the app's color picker: the gradient previews the working color,
-    /// Cancel restores it, OK keeps it, and the palette is left alone.
-    @Test func gradientMapColorsUseTheAppColorPicker() throws {
+    /// Gradient Map's gradient opens the picker's gradient editor: the map previews it as it's edited, Escape restores
+    /// it, closing keeps it, and the palette is left alone.
+    @Test func gradientMapUsesTheGradientEditor() throws {
         let session = EditorSession()
         session.createDocument(width: 8, height: 8)
         let base = try gray(width: 8, height: 8)
@@ -217,24 +217,29 @@ struct ImageAdjustmentTests {
         let edit = try #require(session.filterEdit)
         let start = edit.settings.gradientMap.highlights
 
-        session.openGradientMapColorPicker(highlights: true)
+        session.openGradientPicker(.map)
         let picker = try #require(session.colorPicker)
-        #expect(picker.target == .gradientMap(highlights: true))
-        #expect(AdjustmentColor(picker.original) == start)
+        #expect(picker.target == .gradient(.map))
+        let last = try #require(picker.gradient?.sorted.last)
+        picker.selectStop(last.id)
         picker.hsb.setRGB(PaletteColor(red: 1, green: 0, blue: 0))
-        session.previewGradientMapColor()
-        #expect(edit.settings.gradientMap.highlights == AdjustmentColor(red: 1, green: 0, blue: 0), "the gradient follows the working color")
+        picker.colorChanged()
+        session.previewPickerColor()
+        #expect(edit.settings.gradientMap.highlights == AdjustmentColor(red: 1, green: 0, blue: 0), "the map follows the editor")
         session.closeColorPicker(commit: false)
-        #expect(edit.settings.gradientMap.highlights == start, "Cancel restores it")
+        #expect(edit.settings.gradientMap.highlights == start, "Escape restores it")
 
-        session.openGradientMapColorPicker(highlights: false)
-        try #require(session.colorPicker).hsb.setRGB(PaletteColor(red: 0, green: 0, blue: 1))
+        session.openGradientPicker(.map)
+        let again = try #require(session.colorPicker)
+        _ = again.gradient?.addStop(at: 0.5)
+        session.previewPickerColor()
         session.closeColorPicker(commit: true)
-        #expect(edit.settings.gradientMap.shadows == AdjustmentColor(red: 0, green: 0, blue: 1))
+        #expect(edit.settings.gradientMap.gradient.stops.count == 3, "a third color, kept")
+        #expect(edit.settings.gradientMap.stops != nil)
         #expect(session.foregroundColor == foreground)
         #expect(session.backgroundColor == background, "the palette is untouched")
 
-        session.openGradientMapColorPicker(highlights: true)
+        session.openGradientPicker(.map)
         session.cancelFilter()
         #expect(session.colorPicker == nil && session.filterEdit == nil, "closing the panel closes its picker")
     }

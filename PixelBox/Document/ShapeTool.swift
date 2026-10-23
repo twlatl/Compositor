@@ -201,6 +201,8 @@ nonisolated struct ShapeStroke: Codable, Equatable, Sendable {
     /// Document pixels, whatever size the shape is scaled to.
     var width: CGFloat
     var options = ShapeStrokeOptions()
+    /// Version 18: the stroke painted with a gradient, left to right across the shape, rather than its color.
+    var gradient: ColorGradient? = nil
     var color: PaletteColor { PaletteColor(red: red, green: green, blue: blue) }
     init(color: PaletteColor, width: CGFloat, options: ShapeStrokeOptions = ShapeStrokeOptions()) {
         red = color.red; green = color.green; blue = color.blue
@@ -235,6 +237,10 @@ nonisolated struct LayerShapeStyle: Codable, Equatable, Sendable {
     /// A custom shape's outline, and the name it had in the shape library.
     var outline: ShapeOutline? = nil
     var customName: String? = nil
+    // Version 18 and later.
+    /// The fill (or a line's color) as a gradient, left to right across the shape (along a line, from its start to
+    /// its end), rather than its color.
+    var fillGradient: ColorGradient? = nil
 
     var color: PaletteColor { PaletteColor(red: red, green: green, blue: blue) }
     var isFilled: Bool { filled != false }
@@ -242,6 +248,8 @@ nonisolated struct LayerShapeStyle: Codable, Equatable, Sendable {
     var needsVersion16: Bool {
         !kind.predatesVersion16 || filled != nil || stroke != nil || lineOptions != nil || sides != nil || outline != nil || customName != nil
     }
+    /// The fields version 18 added.
+    var needsVersion18: Bool { fillGradient != nil || stroke?.gradient != nil }
     var isValid: Bool {
         func unit(_ value: CGFloat) -> Bool { value.isFinite && (0...1).contains(value) }
         guard unit(red), unit(green), unit(blue), cornerRadius.isFinite, cornerRadius >= 0 else { return false }
@@ -250,6 +258,8 @@ nonisolated struct LayerShapeStyle: Codable, Equatable, Sendable {
                   ShapeLimits.strokeWidth.contains(stroke.width) else { return false }
         }
         if let sides, !ShapeLimits.sides.contains(sides) { return false }
+        if let fillGradient, !fillGradient.isValid { return false }
+        if let gradient = stroke?.gradient, !gradient.isValid { return false }
         if let outline, !outline.isValid { return false }
         if kind == .custom, outline == nil { return false }
         if let customName, customName.count > 256 { return false }
@@ -279,32 +289,71 @@ nonisolated struct LayerShapeStyle: Codable, Equatable, Sendable {
         return ceil(half * (kind == .rectangle ? sqrt(2) : ShapeLimits.miterLimit))
     }
 
-    /// Fills, then strokes, the shape filling `rect`, in whatever coordinates `context` is set up for.
+    /// Fills, then strokes, the shape filling `rect`, in whatever coordinates `context` is set up for. Gradients run
+    /// left to right across `rect`.
     func draw(in rect: CGRect, context: CGContext) {
         let path = outline(in: rect)
         context.saveGState()
         if isFilled {
-            context.setFillColor(CGColor(srgbRed: red, green: green, blue: blue, alpha: 1))
-            context.addPath(path)
-            context.fillPath(using: fillRule)
+            if let fillGradient {
+                Self.paint(fillGradient, inside: path, rule: fillRule, across: rect, context: context)
+            } else {
+                context.setFillColor(CGColor(srgbRed: red, green: green, blue: blue, alpha: 1))
+                context.addPath(path)
+                context.fillPath(using: fillRule)
+            }
         }
         if let stroke, stroke.width > 0 {
-            context.setStrokeColor(CGColor(srgbRed: stroke.red, green: stroke.green, blue: stroke.blue, alpha: 1))
-            stroke.options.apply(width: stroke.width, to: context)
-            context.addPath(path)
-            context.strokePath()
+            if let gradient = stroke.gradient {
+                Self.paint(gradient, inside: Self.stroked(path, width: stroke.width, options: stroke.options), rule: .winding,
+                           across: rect, context: context)
+            } else {
+                context.setStrokeColor(CGColor(srgbRed: stroke.red, green: stroke.green, blue: stroke.blue, alpha: 1))
+                stroke.options.apply(width: stroke.width, to: context)
+                context.addPath(path)
+                context.strokePath()
+            }
         }
         context.restoreGState()
     }
 
-    /// Draws a line between two points, in whatever coordinates `context` is set up for.
+    /// Draws a line between two points, in whatever coordinates `context` is set up for: its color, or its gradient
+    /// from one end to the other.
     func drawLine(from start: CGPoint, to end: CGPoint, context: CGContext) {
+        let options = lineOptions ?? ShapeStrokeOptions(cap: .round)
+        let width = max(1, lineWidth ?? 1)
+        if var fillGradient {
+            let line = CGMutablePath()
+            line.move(to: start)
+            line.addLine(to: end)
+            // A linear gradient runs along the line, from its start to its end, whatever its own angle.
+            if fillGradient.shape == .linear { fillGradient.angle = atan2(start.y - end.y, end.x - start.x) * 180 / .pi }
+            let box = CGRect(x: min(start.x, end.x), y: min(start.y, end.y), width: abs(end.x - start.x), height: abs(end.y - start.y))
+            Self.paint(fillGradient, inside: Self.stroked(line, width: width, options: options), rule: .winding, across: box, context: context)
+            return
+        }
         context.saveGState()
         context.setStrokeColor(CGColor(srgbRed: red, green: green, blue: blue, alpha: 1))
-        (lineOptions ?? ShapeStrokeOptions(cap: .round)).apply(width: max(1, lineWidth ?? 1), to: context)
+        options.apply(width: width, to: context)
         context.move(to: start)
         context.addLine(to: end)
         context.strokePath()
+        context.restoreGState()
+    }
+
+    /// The area a stroke covers, dashes and all, so a gradient can be painted into it.
+    private static func stroked(_ path: CGPath, width: CGFloat, options: ShapeStrokeOptions) -> CGPath {
+        let dashed = options.dash == .solid ? path : path.copy(dashingWithPhase: 0, lengths: options.dash.lengths.map { $0 * width })
+        return dashed.copy(strokingWithWidth: width, lineCap: options.drawnCap.lineCap, lineJoin: options.join.lineJoin,
+                           miterLimit: ShapeLimits.miterLimit)
+    }
+
+    /// `gradient` laid across `box`, painted inside `area` only.
+    private static func paint(_ gradient: ColorGradient, inside area: CGPath, rule: CGPathFillRule, across box: CGRect, context: CGContext) {
+        context.saveGState()
+        context.addPath(area)
+        context.clip(using: rule)
+        gradient.draw(across: box, context: context)
         context.restoreGState()
     }
 }
@@ -355,6 +404,7 @@ extension EditorSession {
         var style = LayerShapeStyle(kind: shapeKind, red: color.red, green: color.green, blue: color.blue,
                                     cornerRadius: shapeKind.takesCornerRadius ? CGFloat(shapeCornerRadius) : 0,
                                     smoothing: shapeKind == .rectangle && shapeSmoothing ? true : nil)
+        style.fillGradient = shapeFillGradient
         switch shapeKind {
         case .line:
             style.lineWidth = CGFloat(shapeLineWidth)
@@ -369,6 +419,7 @@ extension EditorSession {
             if !shapeFilled { style.filled = false }
             if shapeStrokeEnabled, shapeStrokeWidth > 0 {
                 style.stroke = ShapeStroke(color: shapeStrokeColor, width: CGFloat(shapeStrokeWidth), options: shapeStrokeOptions)
+                style.stroke?.gradient = shapeStrokeGradient
             }
         }
         return style
@@ -502,14 +553,20 @@ extension EditorSession {
     /// Opens the app's picker on the stroke color; choosing one turns the stroke on.
     func openStrokeColorPicker() {
         guard canEditPalette, colorPicker == nil else { return }
-        colorPicker = ColorPickerState(target: .shapeStroke, original: shapeBarLayer?.liveShape?.style.stroke?.color ?? shapeStrokeColor)
+        let stroke = shapeBarLayer?.liveShape?.style.stroke
+        colorPicker = ColorPickerState(target: .shapeStroke, color: stroke?.color ?? shapeStrokeColor,
+                                       gradient: shapeBarLayer != nil ? stroke?.gradient : shapeStrokeGradient, allowsGradient: true,
+                                       foreground: paletteColor(background: false), background: paletteColor(background: true))
     }
 
-    /// The fill swatch: with a shape layer selected, its own fill color; otherwise the foreground color new shapes use.
+    /// The fill well, on a color or a gradient: with a shape layer selected, its own fill; otherwise what the tool's
+    /// next shape fills with (the foreground color, or a gradient).
     func openFillColorPicker() {
-        guard let style = shapeBarLayer?.liveShape?.style else { openColorPicker(background: false); return }
         guard canEditPalette, colorPicker == nil else { return }
-        colorPicker = ColorPickerState(target: .shapeFill, original: style.color)
+        let style = shapeBarLayer?.liveShape?.style
+        colorPicker = ColorPickerState(target: .shapeFill, color: style?.color ?? foregroundColor,
+                                       gradient: style.map(\.fillGradient) ?? shapeFillGradient, allowsGradient: true,
+                                       foreground: paletteColor(background: false), background: paletteColor(background: true))
     }
 
     /// The shape layer the Shape tool's bar edits, as in Photoshop: the selected layer while it's still a shape, with
@@ -533,8 +590,9 @@ extension EditorSession {
         guard Int(size.width) * Int(size.height) <= Self.maxShapePixels,
               let image = try? Self.shapeImage(style, size: size), let thumbnail = try? PixelInvert.thumbnail(of: image),
               let asset = layer.asset else { return }
-        let continuing = lastShapeRestyle.map { $0.layerID == layer.id && $0.name == name && Date().timeIntervalSince($0.time) < 1.5 } == true
-            && history.canAmendLast(name)
+        // While the picker is open, everything it does is one step, however long it stays open.
+        let continuing = lastShapeRestyle.map { $0.layerID == layer.id && $0.name == name
+            && (colorPicker != nil || Date().timeIntervalSince($0.time) < 1.5) } == true && history.canAmendLast(name)
         if !continuing { beginEdit(name) }
         if let mask = layer.mask, mask.placement == nil { document?.layers[index].mask?.placement = layer.maskTransform }
         document?.layers[index].transform = placed

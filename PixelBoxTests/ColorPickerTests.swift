@@ -59,28 +59,4 @@ struct ColorPickerTests {
         session.closeColorPicker(commit: true)
         #expect(session.backgroundColor.hex == "FF0000" && session.foregroundColor == .black)
     }
-
-    @Test func pickerReopensWhereItWasLastLeft() throws {
-        let session = EditorSession()
-        session.createDocument(width: 4, height: 4)
-        let controller = ColorPickerPanelController()
-        session.openColorPicker(background: false)
-        controller.show(try #require(session.colorPicker), session: session)
-        let panel = try #require(NSApp.windows.first { $0.identifier == ColorPickerPanelController.identifier && $0.isVisible })
-        let screen = try #require(panel.screen ?? NSScreen.main).visibleFrame
-        let spot = NSPoint(x: screen.minX + 40, y: screen.maxY - 40)
-        panel.setFrameTopLeftPoint(spot)
-        session.closeColorPicker(commit: false)
-        controller.close()
-        #expect(!panel.isVisible)
-        session.openColorPicker(background: true)
-        controller.show(try #require(session.colorPicker), session: session)
-        #expect(NSPoint(x: panel.frame.minX, y: panel.frame.maxY) == spot)
-        // Switching swatches while it is open keeps it in place too.
-        session.openColorPicker(background: false)
-        controller.show(try #require(session.colorPicker), session: session)
-        #expect(NSPoint(x: panel.frame.minX, y: panel.frame.maxY) == spot)
-        session.closeColorPicker(commit: false)
-        controller.close()
-    }
 }

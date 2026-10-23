@@ -106,18 +106,9 @@ struct BrushControls: View {
                         // Same foreground color and Color Picker as the tool-rail swatch.
                         HStack(spacing: 6) {
                             Text("Color")
-                            Button { session.openColorPicker(background: false) } label: {
-                                let shape = RoundedRectangle(cornerRadius: 4, style: .continuous)
-                                shape.fill(session.foregroundColor.swiftUI)
-                                    .overlay { shape.inset(by: 1).strokeBorder(.white, lineWidth: 1) }
-                                    .overlay { shape.strokeBorder(.black, lineWidth: 1) }
-                                    .frame(width: 34, height: 18)
-                                    .contentShape(shape)
+                            ColorWell(title: "Foreground color", color: session.foregroundColor, session: session) {
+                                session.openColorPicker(background: false)
                             }
-                            .buttonStyle(.plain)
-                            .disabled(!session.canEditPalette)
-                            .help("Foreground color")
-                            .accessibilityLabel("Foreground color")
                         }
                     }
                     Spacer(minLength: 0)

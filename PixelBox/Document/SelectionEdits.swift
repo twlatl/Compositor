@@ -62,6 +62,32 @@ extension EditorSession {
         await applyPixelEdit(to: layer, name: isMaskSelected ? "Fill Mask" : "Fill") { try $0.fill(color) }
     }
 
+    /// Edit › Fill…: the selection (or, with none, the whole layer) filled with a color, or with a gradient laid across
+    /// the selection's bounds as its shape, angle and direction say, as one undo step. On a mask a color is its
+    /// brightness.
+    func fillSelection(with paint: Paint) async {
+        guard canEditPixels, let layer = activeLayer, let document else { return }
+        let mask = isMaskSelected
+        switch paint {
+        case .color(let value):
+            let gray = 0.2126 * value.red + 0.7152 * value.green + 0.0722 * value.blue
+            let color = mask ? CGColor(gray: gray, alpha: 1)
+                : CGColor(colorSpace: CGColorSpace(name: CGColorSpace.sRGB)!, components: [value.red, value.green, value.blue, 1])!
+            await applyPixelEdit(to: layer, name: mask ? "Fill Mask" : "Fill") { try $0.fill(color) }
+        case .gradient(let gradient):
+            let bounds = selection.map { $0.path.boundingBoxOfPath.intersection(CGRect(origin: .zero, size: document.size)) }
+                ?? CGRect(origin: .zero, size: document.size)
+            guard !bounds.isNull, !bounds.isEmpty else { return }
+            await applyPixelEdit(to: layer, name: mask ? "Fill Mask" : "Fill") { try $0.fill(gradient, across: bounds) }
+        }
+    }
+
+    /// The line a gradient runs along to cross `bounds` exactly at `angle` degrees: through its middle, from the
+    /// corner it starts at to the opposite one, as measured along the line. Document y runs down, so 90° is upward.
+    nonisolated static func gradientLine(across bounds: CGRect, angle: CGFloat) -> (start: CGPoint, end: CGPoint) {
+        ColorGradient.line(across: bounds, angle: angle)
+    }
+
     /// Delete with a selection: image pixels become transparent; on a mask the
     /// selection fills with the background color, as in Photoshop.
     func clearSelectedPixels() async {

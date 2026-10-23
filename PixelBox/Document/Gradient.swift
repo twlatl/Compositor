@@ -1,21 +1,30 @@
 import AppKit
 
+/// The Gradient tool's two built-in gradients, which follow the palette's colors.
 nonisolated enum GradientStyle: String, CaseIterable, Sendable {
     case foregroundToBackground = "Foreground to Background"
     case foregroundToTransparent = "Foreground to Transparent"
+    var gradient: ColorGradient { self == .foregroundToBackground ? .foregroundToBackground : .foregroundToTransparent }
 }
 
-/// Linear runs from start to end; radial is centered on the start with the end on its rim.
-nonisolated enum GradientShape: String, CaseIterable, Sendable {
+/// Linear runs from start to end; radial is centered on the start with the end on its rim; angle sweeps around the
+/// start, beginning toward the end.
+nonisolated enum GradientShape: String, CaseIterable, Codable, Sendable {
     case linear = "Linear"
     case radial = "Radial"
+    case angle = "Angle"
 }
 
 nonisolated struct GradientSettings: Equatable, Sendable {
     var shape = GradientShape.linear
-    var style = GradientStyle.foregroundToTransparent
+    var gradient = ColorGradient.foregroundToTransparent
     var reversed = false
     var opacity: CGFloat = 1
+    /// The built-in gradient the tool draws, if it's one of them; setting one draws it.
+    var style: GradientStyle? {
+        get { GradientStyle.allCases.first { $0.gradient == gradient } }
+        set { if let newValue { gradient = newValue.gradient } }
+    }
 }
 
 /// An uncommitted gradient on one layer or mask. Endpoints are document pixels;
@@ -37,7 +46,11 @@ final class GradientEdit {
         let start: CGPoint
         let end: CGPoint
         let colors: [CGColor]
+        /// Where each color falls along the line, 0 to 1.
+        let locations: [CGFloat]
         let opacity: CGFloat
+        /// The gradient itself, for an angle gradient, which can't be drawn from the colors alone.
+        var sweep: ColorGradient? = nil
     }
     var fill: Fill?
     /// The fill the raster's tiles hold. They're filled only when something reads them — the Core Graphics canvas, or
@@ -45,7 +58,8 @@ final class GradientEdit {
     private var filled: Fill?
     func applyFill() throws {
         guard let fill, fill != filled else { return }
-        try raster.fillGradient(fill.shape, from: fill.start, to: fill.end, colors: fill.colors, opacity: fill.opacity)
+        try raster.fillGradient(fill.shape, from: fill.start, to: fill.end, colors: fill.colors, locations: fill.locations,
+                                opacity: fill.opacity, sweep: fill.sweep)
         filled = fill
     }
 }
@@ -79,23 +93,25 @@ extension EditorSession {
     func refreshGradient() {
         guard let edit = gradientEdit else { return }
         if edit.hasLine {
+            let stops = gradientStops(mask: edit.raster.isMask)
+            var sweep = gradientSettings.gradient.resolved(foreground: paletteColor(background: false), background: paletteColor(background: true))
+            if gradientSettings.reversed { sweep = sweep.reversed }
             edit.fill = GradientEdit.Fill(shape: gradientSettings.shape, start: edit.start, end: edit.end,
-                                          colors: gradientColors(mask: edit.raster.isMask), opacity: gradientSettings.opacity)
+                                          colors: stops.colors, locations: stops.locations, opacity: gradientSettings.opacity,
+                                          sweep: gradientSettings.shape == .angle ? sweep.stopsOnly : nil)
         }
         brushRevision += 1
     }
 
-    func gradientColors(mask: Bool) -> [CGColor] {
-        let space = mask ? CGColorSpaceCreateDeviceGray() : CGColorSpace(name: CGColorSpace.sRGB)!
-        func color(_ value: PaletteColor, alpha: CGFloat) -> CGColor {
-            CGColor(colorSpace: space, components: mask ? [value.red, alpha] : [value.red, value.green, value.blue, alpha])!
-        }
-        let foreground = paletteColor(background: false)
-        let colors = gradientSettings.style == .foregroundToBackground
-            ? [color(foreground, alpha: 1), color(paletteColor(background: true), alpha: 1)]
-            : [color(foreground, alpha: 1), color(foreground, alpha: 0)]
-        return gradientSettings.reversed ? colors.reversed() : colors
+    /// The tool's gradient as Core Graphics draws it: stops following the palette in its colors (black or white on a
+    /// mask), reversed if asked, with extra stops where a midpoint has moved. On a mask a color is its brightness.
+    func gradientStops(mask: Bool) -> (colors: [CGColor], locations: [CGFloat]) {
+        var gradient = gradientSettings.gradient.resolved(foreground: paletteColor(background: false), background: paletteColor(background: true))
+        if gradientSettings.reversed { gradient = gradient.reversed }
+        return gradient.cgStops(mask: mask)
     }
+
+    func gradientColors(mask: Bool) -> [CGColor] { gradientStops(mask: mask).colors }
 
     /// Ends a drag; a click without a line leaves nothing pending.
     func endGradientDrag() {

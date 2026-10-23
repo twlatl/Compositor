@@ -845,7 +845,7 @@ extension EditorSession {
 
     func cancelFilter() {
         // A filter color still being picked goes with the panel.
-        if case .gradientMap = colorPicker?.target { closeColorPicker(commit: false) }
+        if case .gradient(.map) = colorPicker?.target { closeColorPicker(commit: false) }
         if case .vignette = colorPicker?.target { closeColorPicker(commit: false) }
         if case .dither = colorPicker?.target { closeColorPicker(commit: false) }
         if finishAdjustmentEditing(commit: false) { return }
@@ -859,7 +859,7 @@ extension EditorSession {
     }
 
     func commitFilter() async {
-        if case .gradientMap = colorPicker?.target { closeColorPicker(commit: true) }
+        if case .gradient(.map) = colorPicker?.target { closeColorPicker(commit: true) }
         if case .vignette = colorPicker?.target { closeColorPicker(commit: true) }
         if case .dither = colorPicker?.target { closeColorPicker(commit: true) }
         if finishAdjustmentEditing(commit: true) { return }

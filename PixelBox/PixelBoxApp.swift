@@ -247,6 +247,8 @@ struct PixelBoxApp: App {
                         } else { Task { await session.fillSelection(with: .background) } }
                     }
                         .configuredKeyboardShortcut(.delete, modifiers: .command).disabled(!session.canEditPixels)
+                    Button("Fill…") { Task { await applicationDelegate.projects.fill() } }
+                        .disabled(!session.canEditPixels)
                     Button("Clear Selection Pixels") { Task { await session.clearSelectedPixels() } }
                         .disabled(session.selection == nil || !session.canEditPixels)
                     Button("Content-Aware Fill…") { session.beginFilter(.contentAwareFill) }

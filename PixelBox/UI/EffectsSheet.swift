@@ -24,8 +24,6 @@ struct EffectsSheet: View {
             }
         }
         .padding(20).frame(width: 340).fixedSize()
-        // The picker previews its working color on the layer while it is open.
-        .onChange(of: session.colorPicker?.color) { _, _ in session.previewEffectColor() }
     }
 
     @ViewBuilder private var stroke: some View {
@@ -153,18 +151,9 @@ struct EffectsSheet: View {
 
     /// The effect's color, opened in the app's own picker.
     private func swatch(_ kind: LayerEffectKind) -> some View {
-        let color = session.editingEffects.color(kind)
-        let shape = RoundedRectangle(cornerRadius: 3, style: .continuous)
-        return Button { session.openEffectColorPicker(kind) } label: {
-            shape.fill(Color(red: Double(color?.red ?? 0), green: Double(color?.green ?? 0), blue: Double(color?.blue ?? 0)))
-                .overlay { shape.inset(by: 1).strokeBorder(.white, lineWidth: 1) }
-                .overlay { shape.strokeBorder(.black, lineWidth: 1) }
-                .frame(width: 36, height: 18)
-                .contentShape(shape)
+        ColorWell(title: kind.rawValue + " color", color: session.editingEffects.color(kind) ?? .black, session: session) {
+            session.openEffectColorPicker(kind)
         }
-        .buttonStyle(.plain)
-        .help(kind.rawValue + " color")
-        .accessibilityLabel(kind.rawValue + " color")
     }
 
     private func slider(_ title: String, value: Binding<CGFloat>, range: ClosedRange<CGFloat>,

@@ -704,12 +704,19 @@ final class BrushStroke {
     /// Replaces this edit with a gradient over the whole canvas (or the selection),
     /// composited onto the original pixels. Redrawing restarts from each tile's original
     /// content, so moving the line never accumulates earlier previews.
-    func fillGradient(_ shape: GradientShape, from start: CGPoint, to end: CGPoint, colors: [CGColor], opacity: CGFloat) throws {
+    /// `sweep` is the gradient an angle gradient sweeps through; Core Graphics can't draw one from `colors` alone.
+    func fillGradient(_ shape: GradientShape, from start: CGPoint, to end: CGPoint, colors: [CGColor], locations: [CGFloat] = [0, 1],
+                      opacity: CGFloat, sweep: ColorGradient? = nil) throws {
         let space = isMask ? CGColorSpaceCreateDeviceGray() : CGColorSpace(name: CGColorSpace.sRGB)!
-        guard let gradient = CGGradient(colorsSpace: space, colors: colors as CFArray, locations: [0, 1]) else { throw ExportError.render }
+        guard colors.count == locations.count,
+              let gradient = CGGradient(colorsSpace: space, colors: colors as CFArray, locations: locations) else { throw ExportError.render }
         try paintCanvas { context in
             context.setAlpha(min(1, max(0, opacity)))
             switch shape {
+            case .angle:
+                // Sweeping around the start, beginning toward the end.
+                sweep?.sweep(around: start, from: atan2(end.y - start.y, end.x - start.x),
+                             radius: hypot(self.canvas.width, self.canvas.height) * 2, mask: self.isMask, context: context)
             case .linear:
                 context.drawLinearGradient(gradient, start: start, end: end,
                                            options: [.drawsBeforeStartLocation, .drawsAfterEndLocation])
@@ -719,6 +726,12 @@ final class BrushStroke {
                                            options: [.drawsBeforeStartLocation, .drawsAfterEndLocation])
             }
         }
+    }
+
+    /// Fills the selection (or the whole canvas) with a gradient laid across `bounds` (document pixels).
+    func fill(_ gradient: ColorGradient, across bounds: CGRect) throws {
+        let mask = isMask
+        try paintCanvas { context in gradient.draw(across: bounds, mask: mask, context: context) }
     }
 
     /// Fills the selection (or the whole canvas) with a solid color.

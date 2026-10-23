@@ -50,6 +50,7 @@ final class CanvasView: NSView {
         }
     }
     private let sampleRing = SampleRingOverlay()
+    private let loupe = EyedropperLoupe()
     private let lines = CanvasLinesOverlay()
     private var samplingOriginal = PaletteColor.black
     let session: EditorSession
@@ -94,7 +95,7 @@ final class CanvasView: NSView {
     private var optionHeld = false
     private var palettePicking: Bool { session.tool == .eyedropper || (optionHeld && (session.tool == .brush || session.tool == .spotHealing || session.tool == .gradient) && session.brushStroke == nil && gradientDrag == nil) }
     private var picking: Bool {
-        palettePicking || (session.colorPicker != nil && !session.pickingForDialog) || session.hueSampleMode != nil || session.levels?.sampleMode != nil
+        palettePicking || session.eyedropper != nil || session.hueSampleMode != nil || session.levels?.sampleMode != nil
             || session.colorRange != nil
             || session.filterEdit?.samplesWhiteBalance == true || session.filterEdit?.samplesPointColor == true
             || session.filterEdit?.samplesDefringe == true
@@ -623,6 +624,7 @@ final class CanvasView: NSView {
             displayedPicking = picking
             displayedTargeting = session.hueTargeting
             samplingColor = false
+            if session.eyedropper == nil { loupe.isHidden = true }
             sampleRing.isHidden = true
             updateTrackingAreas()
             window?.invalidateCursorRects(for: self)
@@ -673,10 +675,11 @@ final class CanvasView: NSView {
         addSubview(transformOverlay)
         addSubview(brushCursor)
         addSubview(sampleRing)
+        addSubview(loupe)
         // Each overlay draws into its own layer. Without one, redrawing a transparent overlay (every crop
         // or transform drag, marching-ants tick, or cursor move) makes AppKit redraw the canvas beneath —
         // the whole checkerboard and layer composite. All three get layers so they keep their stacking order.
-        for overlay in [lines, transformOverlay, brushCursor, sampleRing] as [NSView] { overlay.wantsLayer = true }
+        for overlay in [lines, transformOverlay, brushCursor, sampleRing, loupe] as [NSView] { overlay.wantsLayer = true }
         lines.autoresizingMask = [.width, .height]
         lines.drawLines = { [weak self] dirtyRect in self?.drawLines(in: dirtyRect) }
         clipsToBounds = true
@@ -1626,6 +1629,7 @@ final class CanvasView: NSView {
     override func mouseEntered(with event: NSEvent) { mouseMoved(with: event) }
     override func mouseExited(with event: NSEvent) {
         session.filterEdit?.cameraRawReadout = nil
+        loupe.isHidden = true
         brushPointer = nil
         updateBrushCursor()
         // Tools set their cursor directly while over the canvas, so put the arrow back on the
@@ -1642,7 +1646,11 @@ final class CanvasView: NSView {
             session.updateCameraRawReadout(at: session.viewport.documentPoint(from: point, documentSize: document.size))
         }
         optionHeld = event.modifierFlags.contains(.option)
-        if picking { pickCursor.set(); return }
+        if picking {
+            pickCursor.set()
+            updateLoupe(at: convert(event.locationInWindow, from: nil))
+            return
+        }
         if session.tool.isSelectionTool {
             // Keys may have changed while the app was in the background.
             session.updateHeldSelectionKeys(shift: event.modifierFlags.contains(.shift), option: event.modifierFlags.contains(.option))
@@ -1829,7 +1837,7 @@ final class CanvasView: NSView {
             return
         }
         if picking, !spaceHeld {
-            if session.colorPicker != nil || (palettePicking && session.hueSampleMode == nil) {
+            if session.eyedropper != nil || (palettePicking && session.hueSampleMode == nil) {
                 samplingOriginal = session.colorPicker?.color ?? session.foregroundColor
                 samplingColor = true
                 sampleColor(at: point)
@@ -2164,7 +2172,12 @@ final class CanvasView: NSView {
         if samplingColor {
             samplingColor = false
             sampleRing.isHidden = true
-            if session.colorPicker != nil { ColorPickerPanelController.refocus() }
+            // A well takes the color it last sampled; the picker has been following it already, and stays open.
+            if session.eyedropper != nil {
+                session.finishEyedropper(commit: true)
+                loupe.isHidden = true
+                restoreToolCursor()
+            }
             return
         }
         if session.brushStroke != nil || session.warpStroke != nil, !session.isProjectBusy {
@@ -2254,6 +2267,18 @@ final class CanvasView: NSView {
         let physicalKey = event.keyCode
         guard let event = ShortcutSettings.shared.canvasEvent(event) else { return }
         if handleKeyboardZoom(event) { return }
+        if event.keyCode == 53, session.eyedropper != nil {
+            // Escape puts a well's eyedropper away without picking.
+            session.finishEyedropper(commit: false)
+            loupe.isHidden = true
+            synchronizeDisplay()
+            return
+        }
+        // The picker stays open while the canvas is clicked; Escape here puts it away too, with its original color.
+        if event.keyCode == 53, session.cancelColorPicker() {
+            synchronizeDisplay()
+            return
+        }
         if event.keyCode == 53, textBoxAnchor != nil { textBoxAnchor = nil; textBoxRect = nil; needsDisplay = true; return }
         if event.keyCode == 53, session.textDraft != nil { session.cancelText(); return }
         // A drag session swallows the flagsChanged that says Option was let go, which left the canvas thinking it
@@ -2584,17 +2609,31 @@ final class CanvasView: NSView {
         return CGPoint(x: anchor.x + cos(angle) * length, y: anchor.y + sin(angle) * length)
     }
 
+    /// The eyedropper's magnifier over the canvas pixels under `point` (view points).
+    private func updateLoupe(at point: CGPoint) {
+        guard session.eyedropper != nil, let document = session.document else { loupe.isHidden = true; return }
+        let documentPoint = session.viewport.documentPoint(from: point, documentSize: document.size)
+        loupe.patch = session.compositePatch(around: documentPoint)
+        loupe.color = session.sampleCompositeColor(at: documentPoint)
+        loupe.show(at: point, in: bounds)
+    }
+
     private func sampleColor(at point: CGPoint) {
         guard let document = session.document else { return }
         Self.eyedropperCursor.set()
         let documentPoint = session.viewport.documentPoint(from: point, documentSize: document.size)
-        if session.colorPicker != nil { session.sampleIntoColorPicker(at: documentPoint) }
-        else if session.canEditPalette, let color = session.sampleCompositeColor(at: documentPoint) {
+        if session.eyedropper != nil {
+            // A well's or the picker's eyedropper shows its magnifier rather than the ring.
+            session.previewEyedropper(at: documentPoint)
+            updateLoupe(at: point)
+            return
+        }
+        if session.canEditPalette, let color = session.sampleCompositeColor(at: documentPoint) {
             session.foregroundColor = color
         }
         sampleRing.frame = CGRect(x: point.x - 58, y: point.y - 58, width: 116, height: 116)
         sampleRing.original = samplingOriginal
-        sampleRing.sampled = session.colorPicker?.color ?? session.foregroundColor
+        sampleRing.sampled = session.foregroundColor
         sampleRing.isHidden = !session.showsSampleRing
         sampleRing.needsDisplay = true
     }
@@ -3026,13 +3065,18 @@ extension CanvasView {
                 return CIColor(red: c[0], green: c.count > 2 ? c[1] : c[0], blue: c.count > 2 ? c[2] : c[0], alpha: c.last ?? 1,
                                colorSpace: placement.renderer.space) ?? .black
             }
-            guard fill.colors.count == 2 else { return nil }
+            // Core Image's gradients have two colors at the ends; anything more is drawn by the Core Graphics canvas.
+            guard fill.colors.count == 2, fill.locations == [0, 1] else { unsupported = true; return nil }
             let shading: CIImage
             switch fill.shape {
             case .linear:
                 shading = CIImage.empty().applyingFilter("CILinearGradient", parameters: [
                     "inputPoint0": CIVector(cgPoint: fill.start), "inputPoint1": CIVector(cgPoint: fill.end),
                     "inputColor0": color(fill.colors[0]), "inputColor1": color(fill.colors[1])])
+            case .angle:
+                // Core Image has no sweep; the Core Graphics canvas draws it.
+                unsupported = true
+                return nil
             case .radial:
                 shading = CIImage.empty().applyingFilter("CIRadialGradient", parameters: [
                     kCIInputCenterKey: CIVector(cgPoint: fill.start), "inputRadius0": 0,

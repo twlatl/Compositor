@@ -41,17 +41,6 @@ struct FloatingPanelTests {
         #expect(!panel.isVisible && session.hueSaturation == nil)
     }
 
-    @Test func colorPickerPanelSurvivesALayoutPass() throws {
-        let session = try sessionWithPixels()
-        session.openColorPicker(background: false)
-        let controller = ColorPickerPanelController()
-        controller.show(try #require(session.colorPicker), session: session)
-        settle()
-        let panel = try #require(NSApp.windows.first { $0.identifier == ColorPickerPanelController.identifier })
-        #expect(panel.isVisible && panel.contentView != nil)
-        controller.close()
-        session.closeColorPicker(commit: false)
-    }
     // Invert has no settings and so no editor; it is covered on its own.
     @Test(arguments: AdjustmentKind.allCases.filter(\.isEditable))
     func adjustmentEditorsUseMovableNonmodalPanels(_ kind: AdjustmentKind) async throws {

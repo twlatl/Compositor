@@ -247,6 +247,9 @@ final class EditorSession {
     var shapeFilled = true
     var shapeStrokeEnabled = false
     var shapeStrokeColor = PaletteColor.black
+    /// What new shapes fill and stroke with instead of a color, when a gradient is chosen.
+    var shapeFillGradient: ColorGradient?
+    var shapeStrokeGradient: ColorGradient?
     /// The stroke's width in document pixels.
     var shapeStrokeWidth: Double = 3
     /// Dashes, ends and corners, for strokes and lines alike.
@@ -262,6 +265,13 @@ final class EditorSession {
     var selectedPathKnots: Set<PathKnot> = []
     /// A shape's path, or some of its points, being dragged with the Path Selection tool.
     var pathDrag: PathDrag?
+    /// A color well's eyedropper, or the picker's, waiting for a click on the canvas; and the color it last sampled.
+    var eyedropper: EyedropperRequest?
+    @ObservationIgnored var eyedropperColor: PaletteColor?
+    /// Set while a well's eyedropper opens and closes the picker in one go, so no popover is shown for it.
+    @ObservationIgnored var colorPickerHeadless = false
+    /// The view the picker's popover points at: the well that opened it.
+    @ObservationIgnored weak var colorPickerAnchor: NSView?
     /// The last change the tool bar made to a shape layer, so the same value changed again soon after joins its undo step.
     @ObservationIgnored var lastShapeRestyle: (layerID: UUID, name: String, time: Date)?
     /// The shape being dragged out with the Shape tool, before it becomes a layer.
@@ -295,6 +305,8 @@ final class EditorSession {
     var colorRange: ColorRangeEdit? { didSet { resumeFileRequests() } }
     /// The dialog whose color the picker is open on (`ColorPickerTarget.dialog`).
     @ObservationIgnored var dialogColorChange: ((PaletteColor) -> Void)?
+    /// A dialog's color-or-gradient picker hears the working paint as it changes, the chosen one, or the original.
+    @ObservationIgnored var dialogPaintChange: ((Paint) -> Void)?
     /// A dialog with its own zoomable preview (Export JPEG) is open: the View menu's zoom commands zoom that instead.
     @ObservationIgnored var previewZoom: ((PreviewZoomCommand) -> Void)?
     /// The text's style before the font menu started previewing faces on it (see `previewFont`).
