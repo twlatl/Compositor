@@ -27,10 +27,16 @@ nonisolated struct ShapeOutline: Codable, Equatable, Sendable {
             guard points.count % 6 == 0 else {
                 throw DecodingError.dataCorruptedError(forKey: .points, in: container, debugDescription: "Six numbers to a knot")
             }
-            knots = stride(from: 0, to: points.count, by: 6).map {
-                Knot(anchor: CGPoint(x: points[$0 + 2], y: points[$0 + 3]), incoming: CGPoint(x: points[$0], y: points[$0 + 1]),
-                     outgoing: CGPoint(x: points[$0 + 4], y: points[$0 + 5]))
+            // A step at a time: as one expression, Xcode 26.6's type checker gives up on it.
+            var knots: [Knot] = []
+            knots.reserveCapacity(points.count / 6)
+            for start in stride(from: 0, to: points.count, by: 6) {
+                let incoming = CGPoint(x: points[start], y: points[start + 1])
+                let anchor = CGPoint(x: points[start + 2], y: points[start + 3])
+                let outgoing = CGPoint(x: points[start + 4], y: points[start + 5])
+                knots.append(Knot(anchor: anchor, incoming: incoming, outgoing: outgoing))
             }
+            self.knots = knots
         }
         func encode(to encoder: any Encoder) throws {
             var container = encoder.container(keyedBy: CodingKeys.self)

@@ -319,50 +319,54 @@ struct ContentView: View {
         // Scrolls when the window is too short for every tool, rather than pushing the bars above and below away.
         IndicatorlessScrollView {
         VStack(spacing: 10) {
-            ForEach(NavigationTool.allCases.filter { $0 != .idle }, id: \.self) { tool in
-                Button { session.selectTool(tool) } label: {
-                    Group {
-                        if tool == .gradient { GradientToolIcon().frame(width: 18, height: 18) }
-                        else if tool == .cloneStamp { CloneStampToolIcon().frame(width: 18, height: 18) }
-                        else if tool == .lasso, session.lassoKind == .polygonal { PolygonalLassoToolIcon().frame(width: 18, height: 18) }
-                        else if tool == .wand, session.wandMode == .object { ObjectSelectionToolIcon().frame(width: 18, height: 18) }
-                        // The Shape tool's icon is the shape it draws.
-                        else if tool == .shape { Image(systemName: session.shapeKind.symbol).font(.system(size: 17)) }
-                        else if tool == .pathSelection { PathSelectionToolIcon(direct: session.pathSelectionMode == .direct).frame(width: 18, height: 18) }
-                        // The Marquee's icon follows its shape: a dashed circle in Ellipse mode.
-                        else { Image(systemName: tool == .marquee && session.marqueeKind == .ellipse ? "circle.dashed" : session.symbol(for: tool)).font(.system(size: 17)) }
-                    }
-                    .frame(width: 36, height: 36)
-                    .overlay(alignment: .bottomTrailing) { if tool == .shape || tool == .pathSelection { ToolFlyoutCorner().padding(4) } }
-                        .background(session.tool == tool ? Color.white.opacity(0.12) : .clear,
-                                    in: RoundedRectangle(cornerRadius: 7))
-                        .overlay {
-                            RoundedRectangle(cornerRadius: 7)
-                                .strokeBorder(session.tool == tool ? Color.white.opacity(0.14) : .clear)
-                        }
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain).help(tool.label).accessibilityLabel(tool.label)
-                .foregroundStyle(.primary)
-                .accessibilityAddTraits(session.tool == tool ? .isSelected : [])
-                // Holding the Shape tool, or right-clicking it, shows every shape it draws; the Path Selection tool,
-                // its two modes.
-                .overlay {
-                    if tool == .shape {
-                        PressAndHold(click: { session.selectTool(.shape) }, hold: { ShapeToolMenu.show(for: session) })
-                            .accessibilityHidden(true)
-                    } else if tool == .pathSelection {
-                        PressAndHold(click: { session.selectTool(.pathSelection) }, hold: { PathSelectionToolMenu.show(for: session) })
-                            .accessibilityHidden(true)
-                    }
-                }
-            }
+            ForEach(NavigationTool.allCases.filter { $0 != .idle }, id: \.self) { tool in toolButton(tool) }
             ColorPaletteControls(session: session).padding(.top, 8)
         }
         .padding(.top, 16).padding(.bottom, 12)
         .frame(width: 56)
         }
         .frame(width: 56)
+    }
+
+    // The rail's button in pieces: as one expression the type checker times out (Xcode 26.6).
+    @ViewBuilder private func toolIcon(_ tool: NavigationTool) -> some View {
+        if tool == .gradient { GradientToolIcon().frame(width: 18, height: 18) }
+        else if tool == .cloneStamp { CloneStampToolIcon().frame(width: 18, height: 18) }
+        else if tool == .lasso, session.lassoKind == .polygonal { PolygonalLassoToolIcon().frame(width: 18, height: 18) }
+        else if tool == .wand, session.wandMode == .object { ObjectSelectionToolIcon().frame(width: 18, height: 18) }
+        // The Shape tool's icon is the shape it draws.
+        else if tool == .shape { Image(systemName: session.shapeKind.symbol).font(.system(size: 17)) }
+        else if tool == .pathSelection { PathSelectionToolIcon(direct: session.pathSelectionMode == .direct).frame(width: 18, height: 18) }
+        // The Marquee's icon follows its shape: a dashed circle in Ellipse mode.
+        else { Image(systemName: tool == .marquee && session.marqueeKind == .ellipse ? "circle.dashed" : session.symbol(for: tool)).font(.system(size: 17)) }
+    }
+
+    private func toolButton(_ tool: NavigationTool) -> some View {
+        let selected = session.tool == tool
+        let flyout = tool == .shape || tool == .pathSelection
+        return Button { session.selectTool(tool) } label: {
+            toolIcon(tool)
+                .frame(width: 36, height: 36)
+                .overlay(alignment: .bottomTrailing) { if flyout { ToolFlyoutCorner().padding(4) } }
+                .background(selected ? Color.white.opacity(0.12) : .clear, in: RoundedRectangle(cornerRadius: 7))
+                .overlay { RoundedRectangle(cornerRadius: 7).strokeBorder(selected ? Color.white.opacity(0.14) : .clear) }
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain).help(tool.label).accessibilityLabel(tool.label)
+        .foregroundStyle(.primary)
+        .accessibilityAddTraits(selected ? .isSelected : [])
+        .overlay { toolFlyout(tool) }
+    }
+
+    /// Holding the Shape tool, or right-clicking it, shows every shape it draws; the Path Selection tool, its two modes.
+    @ViewBuilder private func toolFlyout(_ tool: NavigationTool) -> some View {
+        if tool == .shape {
+            PressAndHold(click: { session.selectTool(.shape) }, hold: { ShapeToolMenu.show(for: session) })
+                .accessibilityHidden(true)
+        } else if tool == .pathSelection {
+            PressAndHold(click: { session.selectTool(.pathSelection) }, hold: { PathSelectionToolMenu.show(for: session) })
+                .accessibilityHidden(true)
+        }
     }
     private var welcome: some View {
         NewCanvasSheet(session: session,
