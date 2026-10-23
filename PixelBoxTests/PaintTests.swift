@@ -90,7 +90,7 @@ struct PaintTests {
         #expect(session.activeLayer?.liveShape?.style.fillGradient == nil, "and back to a color")
     }
 
-    @Test func strokesAndLinesTakeGradientsAndNeedVersion18() async throws {
+    @Test func strokesAndLinesTakeGradientsAndNeedVersion19() async throws {
         let session = shapeSession()
         session.shapeFilled = false
         session.shapeStrokeEnabled = true
@@ -117,7 +117,7 @@ struct PaintTests {
         let styles = loaded.manifest.layers.compactMap(\.shape)
         #expect(styles.first?.stroke?.gradient == ColorGradient(red, blue) && styles.last?.fillGradient == ColorGradient(red, blue))
         var older = snapshot.manifest
-        older.version = 17
+        older.version = 18
         await #expect(throws: (any Error).self) {
             try await ProjectStore.shared.save(ProjectSnapshot(manifest: older, images: snapshot.images), to: url)
         }

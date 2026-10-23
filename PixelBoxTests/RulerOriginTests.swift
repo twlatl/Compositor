@@ -76,6 +76,70 @@ struct RulerOriginTests {
         }
     }
 
+    /// A shown grid, snapping to it alone, with the person's grid settings put back afterward: they are saved.
+    private func withGrid(_ grid: LayoutGrid, _ body: (EditorSession) async throws -> Void) async rethrows {
+        try await withSnapping(true) { session in
+            let saved = (session.layoutGrid, session.showsGrid, session.snapToGrid, session.snapToGuides,
+                         session.snapToLayers, session.snapToDocumentBounds)
+            session.layoutGrid = grid
+            session.showsGrid = true
+            session.snapToGrid = true
+            session.snapToGuides = false
+            session.snapToLayers = false
+            session.snapToDocumentBounds = false
+            defer {
+                session.layoutGrid = saved.0
+                session.showsGrid = saved.1
+                session.snapToGrid = saved.2
+                session.snapToGuides = saved.3
+                session.snapToLayers = saved.4
+                session.snapToDocumentBounds = saved.5
+            }
+            try await body(session)
+        }
+    }
+
+    /// Moving the zero point moves the grid, and snapping to the grid snaps to where it's drawn.
+    @Test func theGridFollowsTheZeroPoint() async {
+        await withGrid(LayoutGrid(spacing: 100, subdivisions: 2)) { session in
+            #expect(Set(session.cropSnapTargets().xs) == Set<CGFloat>([0, 50, 100, 150, 200, 250, 300, 350, 400]))
+            session.setRulerZero(CGPoint(x: 120, y: 81))
+            #expect(Set(session.cropSnapTargets().xs) == Set<CGFloat>([20, 70, 120, 170, 220, 270, 320, 370]))
+            #expect(Set(session.cropSnapTargets().ys) == Set<CGFloat>([31, 81, 131, 181, 231, 281]))
+            #expect(session.snappedGuidePosition(52, axis: .vertical, excluding: nil) == 52, "the old line is gone")
+            #expect(session.snappedGuidePosition(72, axis: .vertical, excluding: nil) == 70)
+            #expect(session.snappedGuidePosition(129, axis: .horizontal, excluding: nil) == 131)
+
+            // Double-clicking the corner puts the grid back on the top-left too.
+            session.resetRulerOrigin()
+            #expect(Set(session.cropSnapTargets().xs) == Set<CGFloat>([0, 50, 100, 150, 200, 250, 300, 350, 400]))
+            #expect(session.snappedGuidePosition(52, axis: .vertical, excluding: nil) == 50)
+        }
+    }
+
+    /// A zero point off the canvas, or between pixels, still lays the grid out from it, on whole pixels.
+    @Test func theGridFollowsANegativeOrFractionalZeroPoint() async {
+        await withGrid(LayoutGrid(spacing: 100, subdivisions: 4)) { session in
+            session.setRulerZero(CGPoint(x: -10, y: 30.6))
+            #expect(session.cropSnapTargets().xs.first == 15 && session.cropSnapTargets().xs.last == 390)
+            #expect(session.cropSnapTargets().xs.filter { session.layoutGrid.isMajor($0, from: -10) } == [90, 190, 290, 390])
+            #expect(session.cropSnapTargets().ys == [6, 31, 56, 81, 106, 131, 156, 181, 206, 231, 256, 281])
+            #expect(session.snappedGuidePosition(-12, axis: .vertical, excluding: nil) == -12,
+                    "lines before the canvas aren't snapped to")
+            #expect(session.snappedGuidePosition(33, axis: .horizontal, excluding: nil) == 31)
+        }
+    }
+
+    /// Dragging the zero point onto a grid line lines the grid up with itself; it snaps to the grid as it was.
+    @Test func theZeroPointSnapsToTheGridItMoves() async {
+        await withGrid(LayoutGrid(spacing: 100, subdivisions: 2)) { session in
+            session.beginRulerOriginDrag(at: CGPoint(x: 148, y: 103))
+            #expect(session.rulerOriginDrag == CGPoint(x: 150, y: 100))
+            session.finishRulerOriginDrag(cancel: false)
+            #expect(Set(session.cropSnapTargets().xs) == Set<CGFloat>([0, 50, 100, 150, 200, 250, 300, 350, 400]))
+        }
+    }
+
     /// The numbers before the zero point count backwards from it.
     @Test func rulerTicksCountBackwardsBeforeTheZeroPoint() {
         #expect(CanvasRulerNSView.ticks(from: 0, to: 300, zero: 0, minor: 100) == [0, 100, 200, 300])

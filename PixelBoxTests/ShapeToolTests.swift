@@ -218,7 +218,7 @@ struct ShapeToolTests {
         // Half the stroke reaches outside the 40 × 30 box on every side.
         #expect(layer.transform.origin == CGPoint(x: 18, y: 18) && layer.transform.size == CGSize(width: 44, height: 34))
         let style = try #require(layer.liveShape?.style)
-        #expect(style.stroke?.width == 4 && style.filled == false && style.needsVersion16)
+        #expect(style.stroke?.width == 4 && style.filled == false && style.needsVersion17)
         let pixel = try await pixels(session)
         #expect(pixel(20, 35).alpha == 255 && pixel(20, 35).red == 0, "the blue stroke sits on the outline")
         #expect(pixel(40, 35).alpha == 0, "no fill inside")
@@ -280,7 +280,7 @@ struct ShapeToolTests {
         #expect(session.activeLayer?.liveShape?.style.outline == heart.outline)
     }
 
-    @Test func newShapeOptionsSurviveSavingAndNeedVersion16() async throws {
+    @Test func newShapeOptionsSurviveSavingAndNeedVersion17() async throws {
         let session = makeSession()
         session.shapeKind = .star
         session.shapeSides = 7
@@ -303,7 +303,7 @@ struct ShapeToolTests {
         let rounded = try JSONDecoder().decode(ShapeOutline.self, from: JSONEncoder().encode(outline))
         #expect(shapes.last?.kind == .custom && shapes.last?.outline == rounded)
         var older = snapshot.manifest
-        older.version = 15
+        older.version = 16
         await #expect(throws: (any Error).self) {
             try await ProjectStore.shared.save(ProjectSnapshot(manifest: older, images: snapshot.images), to: url)
         }

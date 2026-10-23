@@ -9,8 +9,8 @@ nonisolated enum ShapeKind: String, CaseIterable, Codable, Sendable {
     case line = "Line"
     case custom = "Custom Shape"
 
-    /// The kinds a project could hold before version 16.
-    var predatesVersion16: Bool { self == .rectangle || self == .ellipse || self == .line }
+    /// The kinds a project could hold before version 17.
+    var predatesVersion17: Bool { self == .rectangle || self == .ellipse || self == .line }
     /// Polygons and stars take a number of sides (a star's points).
     var takesSides: Bool { self == .polygon || self == .star }
     /// Kinds with straight corners that a radius rounds.
@@ -201,7 +201,7 @@ nonisolated struct ShapeStroke: Codable, Equatable, Sendable {
     /// Document pixels, whatever size the shape is scaled to.
     var width: CGFloat
     var options = ShapeStrokeOptions()
-    /// Version 18: the stroke painted with a gradient, left to right across the shape, rather than its color.
+    /// Version 19: the stroke painted with a gradient, left to right across the shape, rather than its color.
     var gradient: ColorGradient? = nil
     var color: PaletteColor { PaletteColor(red: red, green: green, blue: blue) }
     init(color: PaletteColor, width: CGFloat, options: ShapeStrokeOptions = ShapeStrokeOptions()) {
@@ -226,7 +226,7 @@ nonisolated struct LayerShapeStyle: Codable, Equatable, Sendable {
     var lineWidth: CGFloat? = nil
     var start: CGPoint? = nil
     var end: CGPoint? = nil
-    // Version 16 and later.
+    // Version 17 and later.
     /// False when the shape has no fill, only a stroke. Nil is filled.
     var filled: Bool? = nil
     var stroke: ShapeStroke? = nil
@@ -237,19 +237,19 @@ nonisolated struct LayerShapeStyle: Codable, Equatable, Sendable {
     /// A custom shape's outline, and the name it had in the shape library.
     var outline: ShapeOutline? = nil
     var customName: String? = nil
-    // Version 18 and later.
+    // Version 19 and later.
     /// The fill (or a line's color) as a gradient, left to right across the shape (along a line, from its start to
     /// its end), rather than its color.
     var fillGradient: ColorGradient? = nil
 
     var color: PaletteColor { PaletteColor(red: red, green: green, blue: blue) }
     var isFilled: Bool { filled != false }
-    /// The fields version 16 added.
-    var needsVersion16: Bool {
-        !kind.predatesVersion16 || filled != nil || stroke != nil || lineOptions != nil || sides != nil || outline != nil || customName != nil
+    /// The fields version 17 added.
+    var needsVersion17: Bool {
+        !kind.predatesVersion17 || filled != nil || stroke != nil || lineOptions != nil || sides != nil || outline != nil || customName != nil
     }
-    /// The fields version 18 added.
-    var needsVersion18: Bool { fillGradient != nil || stroke?.gradient != nil }
+    /// The fields version 19 added.
+    var needsVersion19: Bool { fillGradient != nil || stroke?.gradient != nil }
     var isValid: Bool {
         func unit(_ value: CGFloat) -> Bool { value.isFinite && (0...1).contains(value) }
         guard unit(red), unit(green), unit(blue), cornerRadius.isFinite, cornerRadius >= 0 else { return false }

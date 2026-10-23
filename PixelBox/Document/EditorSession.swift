@@ -67,16 +67,20 @@ struct CanvasDocument: Equatable {
     var layers: [ImageLayer] = [] // Bottom to top.
     /// User-placed alignment lines. Saved with the project; undo covers them.
     var guides: [CanvasGuide] = []
+    /// The Swatches palette's folders. Nil until they are first changed, showing the defaults. Saved; undo covers them.
+    var swatchGroups: [SwatchGroup]?
     /// Part of the document so undo/redo covers selection changes. Not saved to disk.
     var selection: DocumentSelection?
     var size: CGSize { CGSize(width: width, height: height) }
-    init(id: UUID = UUID(), width: Int, height: Int, layers: [ImageLayer] = [], resolution: Double = 72, guides: [CanvasGuide] = []) {
+    init(id: UUID = UUID(), width: Int, height: Int, layers: [ImageLayer] = [], resolution: Double = 72, guides: [CanvasGuide] = [],
+         swatchGroups: [SwatchGroup]? = nil) {
         self.id = id
         self.width = width
         self.height = height
         self.layers = layers
         self.resolution = resolution
         self.guides = guides
+        self.swatchGroups = swatchGroups
     }
 
     // Geometry limit; raster memory limits will be established with image import.

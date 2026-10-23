@@ -38,7 +38,7 @@ struct ColorWellTests {
         session.previewPickerColor()
         session.closeColorPicker(commit: true)
         #expect(session.backgroundColor == red && session.foregroundColor == .black)
-        #expect(SwatchLibrary.shared.recents.first == red, "a color chosen joins the recent colors")
+        #expect(RecentColors.shared.colors.first == red, "a color chosen joins the recent colors")
     }
 
     @Test func aWellsEyedropperPicksStraightIntoItWithoutAPopover() throws {
@@ -116,29 +116,27 @@ struct ColorWellTests {
         #expect(pixel(0, 0).2 == 0, "outside the canvas is clear")
     }
 
-    @Test func swatchSetsAndRecentColorsAreKeptAcrossLaunches() throws {
-        let url = FileManager.default.temporaryDirectory.appendingPathComponent("Swatches-\(UUID()).json")
+    @Test func recentColorsAreKeptAcrossLaunchesTwelveAtMostEachOnce() throws {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("Recent-\(UUID()).json")
         defer { try? FileManager.default.removeItem(at: url) }
-        let library = SwatchLibrary(fileURL: url)
-        #expect(library.sets.map(\.name) == ["Basic", "Grays"])
-        let set = library.newSet(named: "Wallpaper")
-        #expect(library.selectedSet?.id == set)
-        library.addSwatch(red, to: set)
-        let swatch = try #require(library.selectedSet?.swatches.first)
-        #expect(swatch.name == "#FF0000")
-        library.renameSwatch(swatch.id, to: "Poppy")
-        library.renameSet(set, to: "Walls")
-        for step in 0..<15 { library.addRecent(PaletteColor(red: CGFloat(step) / 20, green: 0, blue: 0)) }
-        library.addRecent(PaletteColor(red: 14.0 / 20, green: 0, blue: 0))
-        #expect(library.recents.count == SwatchLibrary.recentLimit, "twelve at most, each once")
+        let recents = RecentColors(fileURL: url)
+        #expect(recents.colors.isEmpty)
+        for step in 0..<15 { recents.add(PaletteColor(red: CGFloat(step) / 20, green: 0, blue: 0)) }
+        recents.add(PaletteColor(red: 10.0 / 20, green: 0, blue: 0))
+        #expect(recents.colors.count == RecentColors.limit)
+        #expect(recents.colors.first == PaletteColor(red: 10.0 / 20, green: 0, blue: 0), "a color chosen again moves to the front")
+        #expect(Set(recents.colors.map(\.hex)).count == recents.colors.count, "each once")
+        #expect(RecentColors(fileURL: url).colors == recents.colors)
+    }
 
-        let reopened = SwatchLibrary(fileURL: url)
-        #expect(reopened.selectedSet?.name == "Walls" && reopened.selectedSet?.swatches.first?.name == "Poppy")
-        #expect(reopened.recents == library.recents)
-        reopened.deleteSwatch(swatch.id)
-        #expect(reopened.selectedSet?.swatches.isEmpty == true)
-        for id in reopened.sets.map(\.id) { reopened.deleteSet(id) }
-        #expect(reopened.sets.count == 1, "the last set stays")
+    @Test func thePopoversPlusAddsToTheProjectsSwatchesAsAnUndoableEdit() throws {
+        let session = try session()
+        let folder = try #require(session.swatchGroups.first)
+        let count = session.history.undoCount
+        let added = try #require(session.addSwatch(red, named: "", near: folder.id))
+        #expect(session.swatchGroup(containing: added)?.id == folder.id && session.history.undoCount == count + 1)
+        session.undo()
+        #expect(session.swatch(added) == nil)
     }
 
     @Test func thePopoverPointsAtItsWellKeepsTheColorAndEscapeRevertsIt() throws {

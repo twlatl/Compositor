@@ -13,6 +13,7 @@ struct EditorCanvas: NSViewRepresentable {
         _ = session.showsGuides
         _ = session.guideDrag
         _ = session.rulerOriginDrag
+        _ = session.rulerZero // the layout grid is laid out from it
         _ = session.document?.guides
         view.synchronizeDisplay()
         view.window?.isDocumentEdited = session.isModified

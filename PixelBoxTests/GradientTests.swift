@@ -212,7 +212,7 @@ struct GradientTests {
         #expect(settings.stops == nil)
     }
 
-    @Test func aGradientMapLayersStopsNeedVersion17() async throws {
+    @Test func aGradientMapLayersStopsNeedVersion18() async throws {
         let session = EditorSession()
         session.createDocument(width: 8, height: 8)
         session.addAdjustment(.gradientMap)
@@ -227,7 +227,7 @@ struct GradientTests {
         let stops = try #require(saved.first)
         #expect(stops == threeColors)
         var older = snapshot.manifest
-        older.version = 16
+        older.version = 17
         await #expect(throws: (any Error).self) {
             try await ProjectStore.shared.save(ProjectSnapshot(manifest: older, images: snapshot.images), to: url)
         }

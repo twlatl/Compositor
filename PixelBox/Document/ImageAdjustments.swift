@@ -72,7 +72,7 @@ nonisolated struct ExposureSettings: Codable, Equatable, Sendable {
 
 /// Gradient Map: each pixel's brightness picks a color along a gradient, from the shadows' end to the highlights'
 /// (the other way round when reversed); alpha is kept. Older settings have only the two ends, `shadows` and
-/// `highlights`; from version 17 `stops` can hold any number of colors, with midpoints. Only the stops' colors are
+/// `highlights`; from version 18 `stops` can hold any number of colors, with midpoints. Only the stops' colors are
 /// used, not their opacity.
 nonisolated struct GradientMapSettings: Codable, Equatable, Sendable {
     var shadows = AdjustmentColor(red: 0, green: 0, blue: 0)

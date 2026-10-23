@@ -244,7 +244,6 @@ struct TypeToolTests {
         defer { window.orderOut(nil) }
         try await Task.sleep(for: .milliseconds(50))
 
-        delegate.workspace.window = window
         delegate.projects.window = window
         let quitTask = Task { await delegate.workspace.confirmQuit() }
         var alertWindow: NSWindow?

@@ -24,7 +24,7 @@ extension UTType {
 
 nonisolated struct ProjectManifest: Codable, Sendable {
     /// The format version new saves write.
-    static let current = 18
+    static let current = 19
     /// Every version `load` accepts. The package-header check, the manifest check and the error
     /// message all read this, so they cannot drift apart when `current` is bumped.
     static let supported = 1...ProjectManifest.current
@@ -47,6 +47,8 @@ nonisolated struct ProjectManifest: Codable, Sendable {
     var layers: [ProjectLayerRecord]
     /// Alignment guides. Missing on versions 1–7.
     var guides: [CanvasGuide]? = nil
+    /// The Swatches palette's folders. Missing on versions 1–15, and whenever the project shows the defaults.
+    var swatchGroups: [SwatchGroup]? = nil
 }
 
 nonisolated struct ProjectLayerRecord: Codable, Sendable {
@@ -236,8 +238,8 @@ actor ProjectStore {
         for layer in manifest.layers {
             if let shape = layer.shape {
                 guard shape.isValid, shape.smoothing != true || manifest.version >= 14,
-                      !shape.needsVersion16 || manifest.version >= 16,
-                      !shape.needsVersion18 || manifest.version >= 18 else { throw ProjectError.invalid }
+                      !shape.needsVersion17 || manifest.version >= 17,
+                      !shape.needsVersion19 || manifest.version >= 19 else { throw ProjectError.invalid }
             }
             if let text = layer.text {
                 // Per-letter colors arrived in version 10, per-letter faces in version 11.
@@ -251,9 +253,9 @@ actor ProjectStore {
                 if adjustment.kind == .gaussianBlur || adjustment.kind == .motionBlur || adjustment.kind == .addNoise {
                     guard manifest.version >= 9 else { throw ProjectError.invalid }
                 }
-                // A Gradient Map of more than two colors, or with a midpoint moved, arrived in version 17.
+                // A Gradient Map of more than two colors, or with a midpoint moved, arrived in version 18.
                 if adjustment.gradientMapSettings?.stops != nil {
-                    guard manifest.version >= 17 else { throw ProjectError.invalid }
+                    guard manifest.version >= 18 else { throw ProjectError.invalid }
                 }
             }
             // Layer masks arrived in version 4, folder masks in version 6.
@@ -283,6 +285,7 @@ actor ProjectStore {
         }
         if let id = manifest.activeLayerID, !ids.contains(id) { throw ProjectError.invalid }
         try validateGuides(manifest)
+        try validateSwatches(manifest)
     }
 
     private func validateGuides(_ manifest: ProjectManifest) throws {
@@ -298,6 +301,14 @@ actor ProjectStore {
                 throw ProjectError.invalid
             }
         }
+    }
+
+    private func validateSwatches(_ manifest: ProjectManifest) throws {
+        guard let groups = manifest.swatchGroups else { return }
+        guard manifest.version >= 16 else { throw ProjectError.invalid }
+        guard groups.count <= SwatchGroup.maxGroups,
+              groups.reduce(0, { $0 + $1.swatches.count }) <= SwatchGroup.maxSwatches else { throw ProjectError.tooLarge }
+        guard SwatchGroup.isValid(groups) else { throw ProjectError.invalid }
     }
 
     private func checkSize(width: Int, height: Int, used: inout Int) throws {

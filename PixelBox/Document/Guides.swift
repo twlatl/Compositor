@@ -48,16 +48,26 @@ struct LayoutGrid: Equatable {
         self.subdivisions = min(max(subdivisions, Self.subdivisionRange.lowerBound), Self.subdivisionRange.upperBound, self.spacing)
     }
 
-    /// Every grid line along a document edge, including subdivisions, in whole pixels.
-    /// Counted from the origin rather than added up, so an uneven step doesn't drift off the majors.
-    func lines(along length: CGFloat) -> [CGFloat] {
+    /// Every grid line along a document edge, including subdivisions, in whole pixels. The lines are laid out from
+    /// `origin` (the rulers' zero point, taken to the nearest whole pixel) in both directions, and only those from 0
+    /// to `length` are returned. Counted from the origin rather than added up, so an uneven step doesn't drift off
+    /// the majors.
+    func lines(along length: CGFloat, from origin: CGFloat = 0) -> [CGFloat] {
         guard length >= 0 else { return [0] }
-        let count = Int((length / step + 0.001).rounded(.down))
-        return (0...count).map { (CGFloat($0) * step).rounded() }
+        let origin = Self.wholePixel(origin)
+        let first = Int((-origin / step - 0.001).rounded(.up))
+        let last = Int(((length - origin) / step + 0.001).rounded(.down))
+        guard first <= last else { return [] }
+        return (first...last).map { origin + (CGFloat($0) * step).rounded() }
     }
 
-    func isMajor(_ value: CGFloat) -> Bool {
-        abs(value.rounded().truncatingRemainder(dividingBy: CGFloat(spacing))) < 0.001
+    func isMajor(_ value: CGFloat, from origin: CGFloat = 0) -> Bool {
+        abs((value.rounded() - Self.wholePixel(origin)).truncatingRemainder(dividingBy: CGFloat(spacing))) < 0.001
+    }
+
+    /// A non-finite origin, which the rulers never have, counts from 0.
+    private static func wholePixel(_ origin: CGFloat) -> CGFloat {
+        origin.isFinite ? origin.rounded() : 0
     }
 }
 
@@ -272,8 +282,8 @@ extension EditorSession {
         }
         // Hidden extras do not snap, matching Photoshop.
         if snapToGrid, showsGrid {
-            xs += layoutGrid.lines(along: document.size.width)
-            ys += layoutGrid.lines(along: document.size.height)
+            xs += layoutGrid.lines(along: document.size.width, from: rulerZero.x)
+            ys += layoutGrid.lines(along: document.size.height, from: rulerZero.y)
         }
         if snapToGuides, showsGuides {
             for guide in displayedGuides {
@@ -289,7 +299,9 @@ extension EditorSession {
         let tolerance = TransformSnap.distance / max(viewport.pointsPerPixel, 0.0001)
         var targets: [CGFloat] = []
         let length = axis == .vertical ? document.size.width : document.size.height
-        if snapToGrid, showsGrid { targets += layoutGrid.lines(along: length) }
+        if snapToGrid, showsGrid {
+            targets += layoutGrid.lines(along: length, from: axis == .vertical ? rulerZero.x : rulerZero.y)
+        }
         if snapToGuides, showsGuides {
             targets += displayedGuides.filter { $0.axis == axis && $0.id != excluding }.map { CGFloat($0.position) }
         }

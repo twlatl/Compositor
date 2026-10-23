@@ -13,7 +13,7 @@ import Testing
         #expect(workspace.current !== original)
         #expect(workspace.current.session.document == nil)
         #expect(!workspace.current.session.showsNewDocument)
-        #expect(workspace.canSwitch)
+        #expect(workspace.isIdle(workspace.current))
         #expect(original.session.document?.size.width == 4000)
         workspace.newCanvas()
         #expect(workspace.tabs.count == 3)
@@ -30,12 +30,12 @@ import Testing
         session.beginGradient(at: CGPoint(x: 0, y: 10))
         session.moveGradient(end: CGPoint(x: 100, y: 10))
         session.endGradientDrag()
-        #expect(!workspace.canSwitch)
+        #expect(!workspace.isIdle(workspace.current))
         let count = session.history.undoCount
-        await workspace.settlePendingEdits()
+        await workspace.settlePendingEdits(in: workspace.current)
         #expect(session.gradientEdit == nil)
         #expect(session.history.undoCount == count + 1)
-        #expect(workspace.canSwitch)
+        #expect(workspace.isIdle(workspace.current))
     }
 
     /// An open dialog used to block Quit too; quitting cancels it, leaving the layer as it was.
@@ -47,9 +47,9 @@ import Testing
         let original = session.activeLayer?.asset?.image
         for open in [{ session.beginFilter(.gaussianBlur) }, { session.beginHueSaturation() }, { session.beginLevels() }] {
             open()
-            #expect(!workspace.canSwitch)
-            await workspace.settlePendingEdits()
-            #expect(workspace.canSwitch)
+            #expect(!workspace.isIdle(workspace.current))
+            await workspace.settlePendingEdits(in: workspace.current)
+            #expect(workspace.isIdle(workspace.current))
             #expect(session.activeLayer?.asset?.image === original)
         }
     }
@@ -69,17 +69,13 @@ import Testing
         #expect(source.session.document?.layers.first?.id == id)
     }
 
-    /// The only tab, still blank, doesn't close: it would only be replaced. New tabs take the lowest free Untitled
-    /// number, so closing the last project gives "Untitled" again rather than counting up (issue #231).
-    @Test func untitledNumbersStayLowAndTheBlankTabStays() async {
+    /// New tabs take the lowest free Untitled number, so closing the last project gives "Untitled" again rather than
+    /// counting up (issue #231).
+    @Test func untitledNumbersStayLow() {
         let workspace = ProjectWorkspace()
         let first = workspace.current
-        #expect(first.title == "Untitled" && !workspace.canClose(first))
-        await workspace.close(first.id)
-        #expect(workspace.tabs.count == 1 && workspace.current === first && first.title == "Untitled")
-
+        #expect(first.title == "Untitled")
         first.session.createDocument(width: 10, height: 10)
-        #expect(workspace.canClose(first))
         let second = workspace.addTab(), third = workspace.addTab()
         #expect(second.title == "Untitled 2" && third.title == "Untitled 3")
         workspace.removeTab(second.id)
@@ -162,28 +158,7 @@ import Testing
         #expect(workspace.tabs[1].session.document?.layers.count == 1)
     }
 
-    @Test func moveTabReordersWithoutTouchingSelectionOrDocuments() {
-        let workspace = ProjectWorkspace()
-        let a = workspace.current
-        let b = workspace.addTab(reuseEmpty: false)
-        let c = workspace.addTab(reuseEmpty: false)
-        #expect(workspace.tabs.map(\.id) == [a.id, b.id, c.id])
-        workspace.moveTab(c.id, to: 0)
-        #expect(workspace.tabs.map(\.id) == [c.id, a.id, b.id])
-        workspace.moveTab(a.id, to: 2)
-        #expect(workspace.tabs.map(\.id) == [c.id, b.id, a.id])
-        // An out-of-range target clamps to the array's bounds instead of crashing.
-        workspace.moveTab(c.id, to: 99)
-        #expect(workspace.tabs.map(\.id) == [b.id, a.id, c.id])
-        // Moving to where a tab already is, or moving an id that isn't a tab, does nothing.
-        let unchanged = workspace.tabs.map(\.id)
-        workspace.moveTab(c.id, to: 2)
-        workspace.moveTab(UUID(), to: 0)
-        #expect(workspace.tabs.map(\.id) == unchanged)
-        #expect(workspace.current === c) // reordering is chrome — it never moves the selection
-    }
-
-    /// Quit asks about the project on screen first, then the others left to right.
+    /// Quit asks about the project on screen first, then the others in the order they were opened.
     @Test @MainActor func quitAsksAboutTheActiveTabFirst() {
         let workspace = ProjectWorkspace()
         let first = workspace.current
@@ -195,5 +170,107 @@ import Testing
         #expect(workspace.quitOrder.map(\.id) == [third.id, first.id, second.id])
         workspace.select(first.id)
         #expect(workspace.quitOrder.map(\.id) == [first.id, second.id, third.id])
+    }
+
+    /// A new canvas goes in a tab beside the front project's window; New Window gives it a window of its own.
+    @Test func newCanvasOpensBesideTheFrontWindowAndNewWindowStandsAlone() {
+        let workspace = ProjectWorkspace()
+        let windows = RecordingPresenter()
+        workspace.presenter = windows
+        let first = workspace.current
+        first.session.createDocument(width: 10, height: 10)
+        workspace.newCanvas()
+        let second = workspace.current
+        #expect(windows.shown.last?.tab === second && windows.shown.last?.neighbor === first)
+        workspace.newWindow()
+        let third = workspace.current
+        #expect(third !== second && windows.shown.last?.tab === third && windows.shown.last?.neighbor == nil)
+    }
+
+    /// Whichever window becomes main, by a click on its tab or otherwise, is the project the menus act on.
+    @Test func theMainWindowsProjectIsCurrent() {
+        let workspace = ProjectWorkspace()
+        let first = workspace.current
+        let second = workspace.addTab(reuseEmpty: false)
+        #expect(workspace.current === second)
+        workspace.activate(first.controller)
+        #expect(workspace.current === first)
+        workspace.activate(ProjectController(session: EditorSession()))
+        #expect(workspace.current === first, "a controller that isn't the workspace's changes nothing")
+    }
+
+    /// Images dropped on the Dock go into the blank start rather than leaving it behind as an empty tab.
+    @Test func dropsFillTheBlankStartBeforeOpeningTabs() async throws {
+        let url = try ImageImportTests().fixture(.png)
+        defer { try? FileManager.default.removeItem(at: url) }
+        let workspace = ProjectWorkspace()
+        let windows = RecordingPresenter()
+        workspace.presenter = windows
+        let blank = workspace.current
+        await workspace.receive([url, url])
+        #expect(workspace.tabs.count == 2 && workspace.tabs[0] === blank)
+        #expect(windows.shown.contains { $0.tab === workspace.tabs[1] && $0.neighbor === blank })
+        #expect(windows.closed.isEmpty)
+    }
+
+    /// Closing a project closes its window; closing the last leaves a blank project with no window, which is the one
+    /// put up again when the app is brought back.
+    @Test func closingTheLastProjectLeavesABlankOneWithoutAWindow() {
+        let workspace = ProjectWorkspace()
+        let windows = RecordingPresenter()
+        workspace.presenter = windows
+        let first = workspace.current
+        let second = workspace.addTab(reuseEmpty: false)
+        workspace.removeTab(second.id)
+        #expect(windows.closed.map(\.id) == [second.id] && workspace.current === first)
+        workspace.removeTab(first.id)
+        #expect(windows.closed.map(\.id) == [second.id, first.id])
+        let blank = workspace.current
+        #expect(blank !== first && blank.session.document == nil && !windows.shown.contains { $0.tab === blank })
+        workspace.newCanvas()
+        #expect(workspace.tabs.count == 1 && workspace.current === blank, "File › New puts it up rather than adding another")
+        #expect(windows.shown.last?.tab === blank)
+        workspace.newCanvas()
+        #expect(workspace.tabs.count == 2 && windows.shown.last?.neighbor === blank, "once it's up, a new tab beside it")
+    }
+
+    /// A layer dragged over the project it lives in has nowhere to go; any other project, or a new one, takes it.
+    @Test func aLayerCanBeDroppedOnlyOnAnotherProject() throws {
+        let workspace = ProjectWorkspace()
+        let first = workspace.current
+        first.session.createDocument(width: 10, height: 10)
+        first.session.addBlankLayer()
+        let layer = try #require(first.session.activeLayerID)
+        let second = workspace.addTab(reuseEmpty: false)
+        #expect(!workspace.canReceiveDrag(into: first.id, layer: layer))
+        #expect(workspace.canReceiveDrag(into: second.id, layer: layer))
+        #expect(workspace.canReceiveDrag(into: nil, layer: layer))
+    }
+
+    /// Paste of a layer copied in another project brings it over, as dragging it there does.
+    @Test func pastingALayerCopiedInAnotherProjectCopiesItThere() async throws {
+        let workspace = ProjectWorkspace()
+        let first = workspace.current
+        first.session.createDocument(width: 100, height: 100)
+        first.session.insert(try LiveMaskTests().asset([255,255,255,255]))
+        first.session.copySelection()
+        let second = workspace.addTab(reuseEmpty: false)
+        second.session.createDocument(width: 100, height: 100)
+        #expect(workspace.pasteCopiedLayer())
+        for _ in 0..<100 where second.session.document?.layers.isEmpty != false { try await Task.sleep(for: .milliseconds(10)) }
+        #expect(second.session.document?.layers.count == 1)
+        #expect(second.session.document?.layers.first?.id != first.session.activeLayerID)
+    }
+}
+
+/// Stands in for the windows: what was put on screen, and beside what, and what was closed.
+@MainActor
+private final class RecordingPresenter: ProjectWindowPresenting {
+    var shown: [(tab: ProjectTab, neighbor: ProjectTab?)] = []
+    var closed: [ProjectTab] = []
+    func show(_ tab: ProjectTab, beside neighbor: ProjectTab?) { shown.append((tab, neighbor)) }
+    func close(_ tab: ProjectTab) { closed.append(tab) }
+    func hasWindow(_ tab: ProjectTab) -> Bool {
+        shown.contains { $0.tab === tab } && !closed.contains { $0 === tab }
     }
 }

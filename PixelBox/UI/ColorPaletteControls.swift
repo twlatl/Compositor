@@ -3,6 +3,9 @@ import AppKit
 
 struct ColorPaletteControls: View {
     let session: EditorSession
+    /// Whether this copy shows the color picker's popover. The tool rail's does; the Color palette's, a second copy
+    /// of the same swatches, leaves it to that one so the picker isn't opened twice. Its swatches still anchor it.
+    var hostsPicker = true
     @State private var choosingMaskBackground: Bool?
     @State private var popover = ColorPopoverController()
     @State private var foregroundAnchor = WellAnchor()
@@ -51,6 +54,7 @@ struct ColorPaletteControls: View {
         // Every color well's picker is shown from here, pointing at the well that opened it (or at the foreground
         // swatch, for one opened from a menu or a key).
         .onChange(of: session.colorPicker.map(ObjectIdentifier.init)) { _, _ in
+            guard hostsPicker else { return }
             popover.fallbackAnchor = foregroundAnchor.view
             if let picker = session.colorPicker {
                 if !session.colorPickerHeadless { popover.show(picker, session: session) }
@@ -60,7 +64,7 @@ struct ColorPaletteControls: View {
         }
         .onChange(of: session.isMaskSelected) { _, masked in
             choosingMaskBackground = nil
-            if masked { session.closeColorPicker(commit: false) }
+            if masked, hostsPicker { session.closeColorPicker(commit: false) }
         }
     }
     private func swatch(background: Bool) -> some View {

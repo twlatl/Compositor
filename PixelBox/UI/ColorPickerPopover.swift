@@ -30,7 +30,7 @@ final class ColorPopoverController: NSObject, NSPopoverDelegate {
         session.colorPickerAnchor = anchor
         cancelled = false
         let container = EscapeCatchingView()
-        let hosting = NSHostingView(rootView: ColorPickerPopover(session: session, state: state, library: SwatchLibrary.shared,
+        let hosting = NSHostingView(rootView: ColorPickerPopover(session: session, state: state, recents: RecentColors.shared,
                                                                  colorPanel: { [weak self] in self?.showColorPanel(state) }))
         hosting.translatesAutoresizingMaskIntoConstraints = false
         container.addSubview(hosting)
@@ -138,7 +138,9 @@ private final class EscapeCatchingView: NSView {
 struct ColorPickerPopover: View {
     let session: EditorSession
     @Bindable var state: ColorPickerState
-    @Bindable var library: SwatchLibrary
+    @Bindable var recents: RecentColors
+    /// The project's swatch folder shown, the first when it's gone.
+    @State private var swatchGroupID: UUID?
     let colorPanel: () -> Void
     @AppStorage("colorPicker.showsColor") private var showsColor = true
     @AppStorage("colorPicker.showsSwatches") private var showsSwatches = true
@@ -229,7 +231,7 @@ struct ColorPickerPopover: View {
                 }
                 Divider()
             }
-            colorGrid(library.recents.map { (id: $0.hex, name: "#" + $0.hex, color: $0, swatch: Optional<Swatch>.none) }, adds: false)
+            colorGrid(recents.colors.map { (id: $0.hex, name: "#" + $0.hex, color: $0, swatch: Optional<Swatch>.none) }, adds: false)
                 .accessibilityLabel("Recent colors")
     }
 
@@ -344,33 +346,42 @@ struct ColorPickerPopover: View {
 
     // MARK: Swatches
 
+    /// The project's swatches, the same folders as the Swatches palette: changes here are project edits, saved with it
+    /// and undoable.
+    private var shownSwatchGroup: SwatchGroup? {
+        session.swatchGroups.first { $0.id == swatchGroupID } ?? session.swatchGroups.first
+    }
+
     @ViewBuilder private var swatchSets: some View {
-        let selected = library.selectedSet
+        let selected = shownSwatchGroup
         HStack(spacing: 8) {
-            Picker("Swatch set", selection: Binding(get: { selected?.id }, set: { library.selectedSetID = $0 })) {
-                ForEach(library.sets) { Text($0.name).tag(Optional($0.id)) }
+            Picker("Swatch folder", selection: Binding(get: { selected?.id }, set: { swatchGroupID = $0 })) {
+                ForEach(session.swatchGroups) { Text($0.name).tag(Optional($0.id)) }
             }
             .labelsHidden()
             Menu {
-                Button("New Set…") {
-                    if let name = askForName(title: "New Swatch Set", initial: "Swatches") { library.newSet(named: name) }
+                Button("New Folder…") {
+                    if let name = askForName(title: "New Swatch Folder", initial: "Swatches") {
+                        swatchGroupID = session.addSwatchGroup(named: name) ?? swatchGroupID
+                    }
                 }
-                Button("Rename Set…") {
-                    if let selected, let name = askForName(title: "Rename Swatch Set", initial: selected.name) {
-                        library.renameSet(selected.id, to: name)
+                Button("Rename Folder…") {
+                    if let selected, let name = askForName(title: "Rename Swatch Folder", initial: selected.name) {
+                        session.renameSwatchItem(selected.id, to: name)
                     }
                 }
                 .disabled(selected == nil)
-                Button("Delete Set") { if let selected { library.deleteSet(selected.id) } }
-                    .disabled(selected == nil || library.sets.count < 2)
+                Button("Delete Folder") { if let selected { session.deleteSwatchItem(selected.id) } }
+                    .disabled(selected == nil)
             } label: {
                 Image(systemName: "ellipsis.circle")
             }
             .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
-            .accessibilityLabel("Swatch set options")
+            .accessibilityLabel("Swatch folder options")
         }
+        .disabled(!session.canEditSwatches)
         colorGrid((selected?.swatches ?? []).map { (id: $0.id.uuidString, name: $0.name, color: $0.color, swatch: Optional($0)) },
-                  adds: selected != nil)
+                  adds: session.canEditSwatches)
     }
 
     /// Colors in rows of six: clicking one picks it. Swatches can be renamed or deleted; `adds` ends with a "+" that adds
@@ -391,20 +402,21 @@ struct ColorPickerPopover: View {
                 .contextMenu {
                     if let swatch = entry.swatch {
                         Button("Rename Swatch…") {
-                            if let name = askForName(title: "Rename Swatch", initial: swatch.name) { library.renameSwatch(swatch.id, to: name) }
+                            if let name = askForName(title: "Rename Swatch", initial: swatch.name) { session.renameSwatchItem(swatch.id, to: name) }
                         }
-                        Button("Delete Swatch") { library.deleteSwatch(swatch.id) }
+                        Button("Delete Swatch") { session.deleteSwatchItem(swatch.id) }
                     }
                 }
             }
-            if adds, let set = library.selectedSet {
-                Button { library.addSwatch(color, to: set.id) } label: {
+            if adds {
+                // Into the folder shown, or a new one when the project has none.
+                Button { _ = session.addSwatch(color, named: "", near: shownSwatchGroup?.id) } label: {
                     Image(systemName: "plus").frame(maxWidth: .infinity).frame(height: 20)
                         .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 2))
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .help("Add the current color to this set")
+                .help("Add the current color to this folder")
                 .accessibilityLabel("Add swatch")
             }
         }
