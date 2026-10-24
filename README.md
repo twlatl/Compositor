@@ -18,7 +18,7 @@ Download the latest release from [GitHub Releases](https://github.com/twlatl/Pix
 - Clipping masks and folder masks
 - Adjustment layers: Hue/Saturation, Levels, Curves, Exposure, Gradient Map, Grain, Black & White, Color Balance, Invert, Gaussian Blur, Motion Blur and Noise
 - Layer effects: Stroke, Drop Shadow, Color Overlay, Inner Shadow, Outer Glow and Inner Glow, rendered on the GPU and editable at any time
-- Merge Down, Merge Layers and Merge Group (⌘E)
+- Merge Down, Merge Layers and Merge Group (⌥⌘E)
 - Duplicate, rename inline, reorder and nest by drag and drop; Option-drag to duplicate; a right-click menu in the Layers panel
 - Copy and paste whole layers and folders (⌘C/⌘V with no selection), within a project or between projects, or drag them between projects
 
@@ -66,6 +66,7 @@ Download the latest release from [GitHub Releases](https://github.com/twlatl/Pix
 - Import JPEG, PNG, HEIC, TIFF, WebP, SVG, camera RAW (with a develop step first) and Photoshop PSD and PSB (8-bit RGB; not CMYK). Photoshop folders, masks, blend modes, fill rectangles/ellipses, and simple horizontal text stay editable; other vectors and vertical text become pixels. A conversion report is shown before anything is applied.
 - Large documents: the memory budget scales with your Mac, and a Photoshop file too big to open has its layers cropped to the canvas instead
 - Export PNG (⇧⌘E), Export JPEG (⇧⌥⌘S), and Export As (⇧⌥⌘W) for PNG, JPEG or a one-page PDF at the print size, scaled if you like, with a live preview, JPEG quality and file size; Copy Merged
+- Export for Web (⌘E): slice the canvas with the Slice tool (K) and export each slice in several formats at once — JPEG, PNG (including 256-color), WebP, SVG, GIF or MP4, at any scale with a suffix — with live file sizes and presets
 - Keep working while a project saves
 - Photoshop-style keyboard shortcuts throughout, remappable in Edit > Keyboard Shortcuts
 - Drag a number's label to scrub its value, as in Photoshop

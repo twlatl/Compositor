@@ -24,7 +24,7 @@ extension UTType {
 
 nonisolated struct ProjectManifest: Codable, Sendable {
     /// The format version new saves write.
-    static let current = 20
+    static let current = 21
     /// Every version `load` accepts. The package-header check, the manifest check and the error
     /// message all read this, so they cannot drift apart when `current` is bumped.
     static let supported = 1...ProjectManifest.current
@@ -50,6 +50,8 @@ nonisolated struct ProjectManifest: Codable, Sendable {
     var guides: [CanvasGuide]? = nil
     /// The Swatches palette's folders. Missing on versions 1–15, and whenever the project shows the defaults.
     var swatchGroups: [SwatchGroup]? = nil
+    /// File › Export for Web's slices, oldest first. Missing on versions 1–20, and when there are none.
+    var slices: [CanvasSlice]? = nil
 }
 
 nonisolated struct ProjectLayerRecord: Codable, Sendable {
@@ -287,6 +289,17 @@ actor ProjectStore {
         if let id = manifest.activeLayerID, !ids.contains(id) { throw ProjectError.invalid }
         try validateGuides(manifest)
         try validateSwatches(manifest)
+        try validateSlices(manifest)
+    }
+
+    private func validateSlices(_ manifest: ProjectManifest) throws {
+        guard let slices = manifest.slices else { return }
+        guard manifest.version >= 21 else { throw ProjectError.invalid }
+        guard slices.count <= CanvasSlice.maxSlices else { throw ProjectError.tooLarge }
+        let size = CGSize(width: manifest.width, height: manifest.height)
+        guard Set(slices.map(\.id)).count == slices.count, slices.allSatisfy({ $0.isValid(in: size) }) else {
+            throw ProjectError.invalid
+        }
     }
 
     private func validateGuides(_ manifest: ProjectManifest) throws {

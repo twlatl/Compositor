@@ -1,7 +1,7 @@
 import AppKit
 
 extension EditorSession {
-    /// What ⌘E merges, in stacking order, and where the result goes; nil when there is nothing to merge.
+    /// What ⌥⌘E merges, in stacking order, and where the result goes; nil when there is nothing to merge.
     /// One layer merges with the layer beneath it in the same folder; several selected layers merge together
     /// (with anything their folders hold); a folder merges its contents, and the folder goes.
     private func mergePlan() -> (ids: [UUID], removed: Set<UUID>, name: String, parent: UUID?, anchor: UUID, action: String)? {
@@ -29,7 +29,7 @@ extension EditorSession {
     var canMergeLayers: Bool { mergePlan() != nil }
     var mergeTitle: String { mergePlan()?.action ?? "Merge Down" }
 
-    /// ⌘E: the layers composited as the canvas shows them — blend modes, opacity, masks, clipping and adjustments
+    /// ⌥⌘E: the layers composited as the canvas shows them — blend modes, opacity, masks, clipping and adjustments
     /// baked in — into one pixel layer, trimmed to what is there, in their place, as one undo step.
     func mergeLayers() {
         commitTransform()

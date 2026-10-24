@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		5A9C0D1E2F3A4B5C6D7E8F01 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = 5A9C0D1E2F3A4B5C6D7E8F03 /* Sparkle */; };
+		6B1D2E3F4A5B6C7D8E9F0A01 /* libwebp in Frameworks */ = {isa = PBXBuildFile; productRef = 6B1D2E3F4A5B6C7D8E9F0A03 /* libwebp */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -57,6 +58,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				5A9C0D1E2F3A4B5C6D7E8F01 /* Sparkle in Frameworks */,
+				6B1D2E3F4A5B6C7D8E9F0A01 /* libwebp in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -118,6 +120,7 @@
 			name = Pixegen;
 			packageProductDependencies = (
 				5A9C0D1E2F3A4B5C6D7E8F03 /* Sparkle */,
+				6B1D2E3F4A5B6C7D8E9F0A03 /* libwebp */,
 			);
 			productName = Pixegen;
 			productReference = 8F311F99304F03BB0017D14F /* Pixegen.app */;
@@ -203,6 +206,7 @@
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
 				5A9C0D1E2F3A4B5C6D7E8F02 /* XCRemoteSwiftPackageReference "Sparkle" */,
+				6B1D2E3F4A5B6C7D8E9F0A02 /* XCRemoteSwiftPackageReference "libwebp-Xcode" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 8F311F9A304F03BB0017D14F /* Products */;
@@ -617,6 +621,14 @@
 				minimumVersion = 2.10.0;
 			};
 		};
+		6B1D2E3F4A5B6C7D8E9F0A02 /* XCRemoteSwiftPackageReference "libwebp-Xcode" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/SDWebImage/libwebp-Xcode";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 1.6.0;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -624,6 +636,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 5A9C0D1E2F3A4B5C6D7E8F02 /* XCRemoteSwiftPackageReference "Sparkle" */;
 			productName = Sparkle;
+		};
+		6B1D2E3F4A5B6C7D8E9F0A03 /* libwebp */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 6B1D2E3F4A5B6C7D8E9F0A02 /* XCRemoteSwiftPackageReference "libwebp-Xcode" */;
+			productName = libwebp;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

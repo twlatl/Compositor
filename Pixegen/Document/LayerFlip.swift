@@ -75,6 +75,12 @@ extension EditorSession {
             }
         }
         self.document?.guides = document.guides.map { $0.mirrored(horizontally: horizontally, across: axis) }
+        self.document?.slices = document.slices.compactMap { slice in
+            slice.transformed(in: document.size) { rect in
+                horizontally ? CGRect(x: document.size.width - rect.maxX, y: rect.minY, width: rect.width, height: rect.height)
+                             : CGRect(x: rect.minX, y: document.size.height - rect.maxY, width: rect.width, height: rect.height)
+            }
+        }
         endEdit()
     }
 }
