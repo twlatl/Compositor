@@ -29,14 +29,14 @@
 		</dict>
 		<dict>
 			<key>CFBundleTypeName</key>
-			<string>PixelBox Project</string>
+			<string>Pixegen Project</string>
 			<key>CFBundleTypeRole</key>
 			<string>Editor</string>
 			<key>LSHandlerRank</key>
 			<string>Owner</string>
 			<key>LSItemContentTypes</key>
 			<array>
-				<string>net.pixegen.pixelbox.project</string>
+				<string>net.pixegen.pixegen.project</string>
 			</array>
 			<key>LSTypeIsPackage</key>
 			<true/>
@@ -71,8 +71,8 @@
 	<key>SUEnableInstallerLauncherService</key>
 	<true/>
 	<key>SUFeedURL</key>
-	<string>https://raw.githubusercontent.com/twlatl/PixelBox/main/appcast.xml</string>
-	<!-- TODO: replace with PixelBox's own EdDSA public key (Sparkle's generate_keys). This is still Compositor's. -->
+	<string>https://raw.githubusercontent.com/twlatl/Pixegen/main/appcast.xml</string>
+	<!-- TODO: replace with Pixegen's own EdDSA public key (Sparkle's generate_keys). This is still Compositor's. -->
 	<key>SUPublicEDKey</key>
 	<string>KZvD724t8QpzTR4OGrHrsCWt538TJ/g/qrTZii+o214=</string>
 	<key>SUEnableAutomaticChecks</key>
@@ -85,9 +85,9 @@
 				<string>public.data</string>
 			</array>
 			<key>UTTypeDescription</key>
-			<string>PixelBox Layer</string>
+			<string>Pixegen Layer</string>
 			<key>UTTypeIdentifier</key>
-			<string>net.pixegen.pixelbox.layer-row</string>
+			<string>net.pixegen.pixegen.layer-row</string>
 		</dict>
 		<dict>
 			<key>UTTypeConformsTo</key>
@@ -95,9 +95,9 @@
 				<string>com.apple.package</string>
 			</array>
 			<key>UTTypeDescription</key>
-			<string>PixelBox Project</string>
+			<string>Pixegen Project</string>
 			<key>UTTypeIdentifier</key>
-			<string>net.pixegen.pixelbox.project</string>
+			<string>net.pixegen.pixegen.project</string>
 			<key>UTTypeTagSpecification</key>
 			<dict>
 				<key>public.filename-extension</key>

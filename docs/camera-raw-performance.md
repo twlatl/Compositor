@@ -46,27 +46,27 @@ Functional checks cover the 4 MP threshold, histogram and vectorscope sample cou
 
 ## Reproduce
 
-The opt-in benchmark is `PixelBoxTests/CameraRawScopePerformanceTests.swift`. Run it alone, using the same Release configuration as the measurements:
+The opt-in benchmark is `PixegenTests/CameraRawScopePerformanceTests.swift`. Run it alone, using the same Release configuration as the measurements:
 
 ```sh
 TEST_RUNNER_CAMERA_RAW_BENCHMARK=1 xcodebuild \
-  -project PixelBox.xcodeproj -scheme PixelBox -configuration Release \
-  -destination 'platform=macOS' -derivedDataPath /tmp/PixelBoxScopeBenchmarkBuild \
+  -project Pixegen.xcodeproj -scheme Pixegen -configuration Release \
+  -destination 'platform=macOS' -derivedDataPath /tmp/PixegenScopeBenchmarkBuild \
   CODE_SIGNING_ALLOWED=NO ENABLE_TESTABILITY=YES \
   -enableCodeCoverage NO -parallel-testing-enabled NO \
-  -only-testing:PixelBoxTests/CameraRawScopePerformanceTests test
+  -only-testing:PixegenTests/CameraRawScopePerformanceTests test
 ```
 
-It writes `/tmp/pixelbox-scope-paired.json`. Normal test runs return immediately unless the benchmark variable is set. Scope counts and displayed color distributions can differ slightly with sparser sampling; the image pixels, clipping overlays, and effect math do not change.
+It writes `/tmp/pixegen-scope-paired.json`. Normal test runs return immediately unless the benchmark variable is set. Scope counts and displayed color distributions can differ slightly with sparser sampling; the image pixels, clipping overlays, and effect math do not change.
 
 ## Raw results
 
 All original trials are retained in [camera-raw-scope-sampling.json](benchmarks/camera-raw-scope-sampling.json).
 
-- `/tmp/pixelbox-scope-baseline.json`: baseline sampling, measured before the edit.
-- `/tmp/pixelbox-scope-after.json`: new sampling, measured after the edit.
-- `/tmp/pixelbox-scope-paired.json`: alternating original/new sampling within one process.
-- `/tmp/PixelBoxScopeBenchmarkBefore.log`, `/tmp/PixelBoxScopeBenchmarkAfter.log`, `/tmp/PixelBoxScopeBenchmarkPaired.log`: Xcode run logs.
+- `/tmp/pixegen-scope-baseline.json`: baseline sampling, measured before the edit.
+- `/tmp/pixegen-scope-after.json`: new sampling, measured after the edit.
+- `/tmp/pixegen-scope-paired.json`: alternating original/new sampling within one process.
+- `/tmp/PixegenScopeBenchmarkBefore.log`, `/tmp/PixegenScopeBenchmarkAfter.log`, `/tmp/PixegenScopeBenchmarkPaired.log`: Xcode run logs.
 
 
 ## Metal composed color lookup
@@ -119,11 +119,11 @@ Run the opt-in benchmark alone:
 
 ```sh
 TEST_RUNNER_CAMERA_RAW_GPU_BENCHMARK=1 xcodebuild \
-  -project PixelBox.xcodeproj -scheme PixelBox -configuration Release \
-  -destination 'platform=macOS' -derivedDataPath /tmp/PixelBoxScopeBenchmarkBuild \
+  -project Pixegen.xcodeproj -scheme Pixegen -configuration Release \
+  -destination 'platform=macOS' -derivedDataPath /tmp/PixegenScopeBenchmarkBuild \
   CODE_SIGNING_ALLOWED=NO ENABLE_TESTABILITY=YES \
   -enableCodeCoverage NO -parallel-testing-enabled NO \
-  -only-testing:PixelBoxTests/CameraRawGPUPerformanceTests test
+  -only-testing:PixegenTests/CameraRawGPUPerformanceTests test
 ```
 
-The benchmark writes `/tmp/pixelbox-camera-raw-gpu.json`. Ordinary unit runs do no timing work unless the benchmark environment variable is set. Exact parity tests are in `CameraRawGPUTests`; they are enabled when a Metal device exists, and still fail if the shader cannot compile on that device.
+The benchmark writes `/tmp/pixegen-camera-raw-gpu.json`. Ordinary unit runs do no timing work unless the benchmark environment variable is set. Exact parity tests are in `CameraRawGPUTests`; they are enabled when a Metal device exists, and still fail if the shader cannot compile on that device.

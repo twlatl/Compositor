@@ -18,15 +18,15 @@ FILTER_SUITES=(CameraRawTests CameraRawSliderTests HueSaturationTests ImageAdjus
 WINDOW_SUITES=(FloatingPanelTests SliderSnapTests)
 # About half of the rest, alternating down the suites by size so neither half gets all the big ones.
 FIRST_SUITES=(PSDRoundTripTests LayerTests SelectionTests SelectionEditTests TransformTests TiledLayerTests
-  AdjustmentLayerTests GuideTests SelectionClipboardTests ImageImportTests PixelBoxTests ExternalChangeTests
+  AdjustmentLayerTests GuideTests SelectionClipboardTests ImageImportTests PixegenTests ExternalChangeTests
   HistoryTests GradientTests CropToCanvasImportTests MaskTransformTests LiveMaskTests MaskAloneTests
   BrushIntersectionTests ShapeToolTests CanvasEntryTests PSBImportTests SmartEditTests CommandPaletteTests
   CanvasRotationTests CanvasThumbnailTests ProjectTabLayoutTests ResizeSnapTests SpotHealingTests
   PSDAdjustmentTests NewCanvasUnitTests SelectionFeatherTests BlurBrushTests)
 
 # macOS's bash is 3.2: no mapfile, so the arguments are gathered in `args`.
-only() { args=(); for suite; do args+=("-only-testing:PixelBoxTests/$suite"); done; }
-skip() { args=(); for suite; do args+=("-skip-testing:PixelBoxTests/$suite"); done; }
+only() { args=(); for suite; do args+=("-only-testing:PixegenTests/$suite"); done; }
+skip() { args=(); for suite; do args+=("-skip-testing:PixegenTests/$suite"); done; }
 
 names=() pids=()
 run() {

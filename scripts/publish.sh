@@ -1,5 +1,5 @@
 #!/bin/zsh
-# Publishes the DMG that release.sh built: a GitHub Release (v<version>) holding PixelBox.dmg, then the Sparkle
+# Publishes the DMG that release.sh built: a GitHub Release (v<version>) holding Pixegen.dmg, then the Sparkle
 # update feed (appcast.xml, committed to main) pointing at it.
 #
 # Run release.sh first. Needs the Sparkle signing key in the login keychain and `gh` signed in.
@@ -8,9 +8,9 @@
 set -euo pipefail
 
 PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-APP=PixelBox
-REPO=twlatl/PixelBox
-WORK="$HOME/Library/Caches/PixelBoxRelease"
+APP=Pixegen
+REPO=twlatl/Pixegen
+WORK="$HOME/Library/Caches/PixegenRelease"
 SIGN_UPDATE="$WORK/DerivedData/SourcePackages/artifacts/sparkle/Sparkle/bin/sign_update"
 
 settings=$(xcodebuild -project "$PROJECT_DIR/$APP.xcodeproj" -scheme "$APP" -configuration Release -showBuildSettings 2>/dev/null)
@@ -27,7 +27,7 @@ if gh release view "$TAG" --repo "$REPO" >/dev/null 2>&1; then
 fi
 
 echo "==> $APP $VERSION ($BUILD)"
-# Every release names its file PixelBox.dmg, so …/releases/latest/download/PixelBox.dmg always works.
+# Every release names its file Pixegen.dmg, so …/releases/latest/download/Pixegen.dmg always works.
 mkdir -p "$WORK/publish"
 DMG="$WORK/publish/$APP.dmg"
 cp "$SOURCE" "$DMG"
