@@ -14,7 +14,8 @@ extension EditorSession {
         }
         return ProjectSnapshot(manifest: ProjectManifest(resolution: document.resolution, documentID: document.id, width: document.width,
             height: document.height, activeLayerID: activeLayerID, layers: layers,
-            guides: document.guides.isEmpty ? nil : document.guides, swatchGroups: document.swatchGroups), images: images, masks: masks)
+            guides: document.guides.isEmpty ? nil : document.guides, swatchGroups: document.swatchGroups,
+            slices: document.slices.isEmpty ? nil : document.slices), images: images, masks: masks)
     }
 
     /// Called only after the entire package has successfully validated and loaded.
@@ -27,7 +28,7 @@ extension EditorSession {
         transformEdit = nil
         document = CanvasDocument(id: manifest.documentID, width: manifest.width, height: manifest.height,
             layers: snapshot.documentLayers, resolution: manifest.resolution ?? 72, guides: manifest.guides ?? [],
-            swatchGroups: manifest.swatchGroups)
+            swatchGroups: manifest.swatchGroups, slices: manifest.slices ?? [])
         activeLayerID = manifest.activeLayerID
         projectURL = url
         photoshopSource = nil

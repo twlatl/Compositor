@@ -15,7 +15,13 @@ actor CanvasResizer {
         guard options.width != old.width || options.height != old.height || offset != .zero else { return snapshot }
         var manifest = ProjectManifest(resolution: old.resolution, documentID: old.documentID,
             width: options.width, height: options.height, activeLayerID: old.activeLayerID, layers: [],
-            guides: old.guides?.map { $0.offset(x: offset.x, y: offset.y) }, swatchGroups: old.swatchGroups)
+            guides: old.guides?.map { $0.offset(x: offset.x, y: offset.y) }, swatchGroups: old.swatchGroups,
+            slices: old.slices.flatMap { slices in
+                let moved = slices.compactMap { slice in
+                    slice.transformed(in: CGSize(width: options.width, height: options.height)) { $0.offsetBy(dx: offset.x, dy: offset.y) }
+                }
+                return moved.isEmpty ? nil : moved
+            })
         for layer in old.layers {
             var transform = layer.transform
             transform.origin.x += offset.x

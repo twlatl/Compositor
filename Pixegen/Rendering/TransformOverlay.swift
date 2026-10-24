@@ -187,6 +187,7 @@ final class TransformOverlay: NSView {
     override func draw(_ dirtyRect: NSRect) {
         drawLayoutGrid()
         drawGuides()
+        if session.exportPanelOpen { drawSlices() }
         if let line = progressiveLine { drawProgressiveLine(line) }
         else if session.tool == .crop { drawCrop() }
         else if let line = gradientLine { drawGradientLine(line) }
@@ -517,7 +518,11 @@ final class TransformOverlay: NSView {
     }
     var cropResizeRegions: [(index: Int, rect: CGRect)] {
         guard let rect = cropViewRect else { return [] }
-        let handles = cropHandles
+        return Self.resizeRegions(for: rect)
+    }
+    /// A frame's corner handles and whole edges, in view coordinates, by handle index.
+    static func resizeRegions(for rect: CGRect) -> [(index: Int, rect: CGRect)] {
+        let handles = LayerTransform.handles.map { CGPoint(x: rect.minX + $0.x * rect.width, y: rect.minY + $0.y * rect.height) }
         let radius: CGFloat = 10
         var regions = [0, 2, 4, 6].map { index in
             (index: index, rect: CGRect(x: handles[index].x - radius, y: handles[index].y - radius,
@@ -618,6 +623,76 @@ final class TransformOverlay: NSView {
             if let color { context.setFillColor(color); context.fillEllipse(in: inner) }
         }
         context.restoreGState()
+    }
+
+    // MARK: Slices
+
+    /// Slices' outlines: gold, as Photoshop's, so they stand apart from cyan guides.
+    static let sliceColor = NSColor(srgbRed: 0.93, green: 0.76, blue: 0.29, alpha: 1)
+
+    func sliceViewRect(_ rect: CGRect) -> CGRect? {
+        guard let document = session.document else { return nil }
+        return CGRect(origin: session.viewport.viewPoint(from: rect.origin, documentSize: document.size),
+                      size: CGSize(width: rect.width * session.viewport.pointsPerPixel,
+                                   height: rect.height * session.viewport.pointsPerPixel))
+    }
+    /// The selected slice as shown (a drag in progress included), in view coordinates, while the Slice tool is on.
+    var selectedSliceViewRect: CGRect? {
+        guard session.tool == .slice, session.exportPanelOpen, let id = session.selectedSliceID,
+              let slice = session.displayedSlices.first(where: { $0.id == id }) else { return nil }
+        return sliceViewRect(slice.rect)
+    }
+    var selectedSliceResizeRegions: [(index: Int, rect: CGRect)] {
+        selectedSliceViewRect.map(Self.resizeRegions(for:)) ?? []
+    }
+
+    private func drawSlices() {
+        guard let context = NSGraphicsContext.current?.cgContext else { return }
+        let draftID = session.sliceDraft.map { $0.id }
+        context.saveGState()
+        for slice in session.displayedSlices {
+            guard let view = sliceViewRect(slice.rect) else { continue }
+            let rect = view.integral.insetBy(dx: 0.5, dy: 0.5)
+            let selected = slice.id == session.selectedSliceID && session.tool == .slice
+            let isNewDraft = draftID == .some(nil) && !(session.document?.slices.contains { $0.id == slice.id } ?? false)
+            if selected || isNewDraft {
+                context.setFillColor(Self.sliceColor.withAlphaComponent(0.12).cgColor)
+                context.fill(rect)
+            }
+            context.setLineWidth(1)
+            context.setStrokeColor(Self.sliceColor.withAlphaComponent(selected ? 1 : 0.8).cgColor)
+            context.stroke(rect)
+            drawSliceLabel(slice.name, at: CGPoint(x: rect.minX, y: rect.minY), selected: selected, in: context)
+        }
+        context.restoreGState()
+        guard let selected = selectedSliceViewRect else { return }
+        context.saveGState()
+        context.setFillColor(NSColor.white.cgColor)
+        context.setStrokeColor(NSColor.black.cgColor)
+        context.setLineWidth(1)
+        for handle in LayerTransform.handles {
+            let point = CGPoint(x: selected.minX + handle.x * selected.width, y: selected.minY + handle.y * selected.height)
+            let square = CGRect(x: (point.x - 4).rounded() + 0.5, y: (point.y - 4).rounded() + 0.5, width: 7, height: 7)
+            context.fill(square)
+            context.stroke(square)
+        }
+        context.restoreGState()
+    }
+
+    /// The slice's name in a dark tag on its top-left corner, gold when selected.
+    private func drawSliceLabel(_ name: String, at corner: CGPoint, selected: Bool, in context: CGContext) {
+        let text = NSAttributedString(string: name, attributes: [
+            .font: NSFont.systemFont(ofSize: 10, weight: .semibold),
+            .foregroundColor: selected ? NSColor.black : NSColor.white,
+        ])
+        let size = text.size()
+        let tag = CGRect(x: corner.x + 3, y: corner.y + 3, width: ceil(size.width) + 8, height: ceil(size.height) + 2)
+        context.setFillColor(selected ? Self.sliceColor.cgColor : NSColor.black.withAlphaComponent(0.75).cgColor)
+        context.addPath(CGPath(roundedRect: tag, cornerWidth: 3, cornerHeight: 3, transform: nil))
+        context.fillPath()
+        NSGraphicsContext.saveGraphicsState()
+        text.draw(at: CGPoint(x: tag.minX + 4, y: tag.minY + 1))
+        NSGraphicsContext.restoreGraphicsState()
     }
 
     private func drawCrop() {

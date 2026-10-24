@@ -91,6 +91,47 @@ final class ProjectController {
         } catch { await showError("Couldn’t export", error: error) }
     }
 
+    /// The Export panel's Export…: every slice in each of its formats, into a folder chosen here.
+    func exportSlices() async {
+        guard let slices = session.document?.slices, !slices.isEmpty, begin() else { return }
+        defer { session.isProjectBusy = false }
+        guard let snapshot = session.projectSnapshot() else { return }
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.canCreateDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.title = "Export Slices"
+        panel.prompt = "Export"
+        panel.message = "Choose a folder for the slices."
+        let response: NSApplication.ModalResponse
+        if let window { response = await panel.beginSheetModal(for: window) }
+        else { response = await panel.begin() }
+        guard response == .OK, let folder = panel.url else { return }
+        let scoped = folder.startAccessingSecurityScopedResource()
+        defer { if scoped { folder.stopAccessingSecurityScopedResource() } }
+        let existing = SliceExporter.destinations(for: slices, in: folder).map(\.0)
+            .filter { FileManager.default.fileExists(atPath: $0.path) }
+        if !existing.isEmpty {
+            let alert = NSAlert()
+            alert.messageText = existing.count == 1 ? "Replace “\(existing[0].lastPathComponent)”?"
+                : "Replace \(existing.count) files in “\(folder.lastPathComponent)”?"
+            alert.informativeText = existing.count == 1 ? "A file with that name is already in the folder."
+                : existing.prefix(5).map(\.lastPathComponent).joined(separator: ", ") + (existing.count > 5 ? ", …" : "")
+            alert.addButton(withTitle: "Replace")
+            alert.addButton(withTitle: "Cancel")
+            let answer: NSApplication.ModalResponse
+            if let window { answer = await alert.beginSheetModal(for: window) } else { answer = alert.runModal() }
+            guard answer == .alertFirstButtonReturn else { return }
+        }
+        do {
+            let raster = try await ImageExporter.shared.render(snapshot)
+            _ = try await SliceExporter.shared.export(slices, composite: raster.image, to: folder)
+            session.isProjectBusy = false
+            session.closeExportPanel()
+        } catch { await showError("Couldn’t export slices", error: error) }
+    }
+
     /// The format Export As last used, offered first next time.
     private var lastExportFormat = ExportFormat.png
 
