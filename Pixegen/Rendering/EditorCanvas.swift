@@ -235,6 +235,27 @@ final class CanvasView: NSView {
         return outlinedCursor(size: NSSize(width: 24, height: 24), hotSpot: NSPoint(x: 2, y: 22),
                               [(blade, .white, .black), (handle, .black, .white)])
     }()
+    /// The pointer over a slice: the arrow with a small dashed box at its lower right, for a slice that can be
+    /// selected, moved and resized.
+    static let sliceSelectCursor: NSCursor = {
+        let base = NSCursor.arrow
+        let frame = NSRect(x: base.hotSpot.x + 10.5, y: base.hotSpot.y + 13.5, width: 10, height: 10)
+        let image = NSImage(size: NSSize(width: 36, height: 36), flipped: true) { _ in
+            let box = NSBezierPath(rect: frame)
+            base.image.draw(in: NSRect(origin: .zero, size: base.image.size), from: .zero, operation: .sourceOver,
+                            fraction: 1, respectFlipped: true, hints: nil)
+            // A white box under black dashes, so the dashes show on dark and light pixels alike.
+            box.lineWidth = 3
+            NSColor.white.setStroke()
+            box.stroke()
+            box.lineWidth = 1
+            box.setLineDash([2, 2], count: 2, phase: 0)
+            NSColor.black.setStroke()
+            box.stroke()
+            return true
+        }
+        return NSCursor(image: image, hotSpot: base.hotSpot)
+    }()
     /// The arrow's corners, tip first (y down, about 12 × 19), shared by these pointers and the tool rail's icons.
     static let arrowOutline: [CGPoint] = [(0, 0), (0, 16.5), (3.9, 12.8), (6.6, 19), (9.2, 17.9), (6.6, 11.8), (11.8, 11.8)]
         .map { CGPoint(x: $0.0, y: $0.1) }
@@ -447,6 +468,7 @@ final class CanvasView: NSView {
     })
     private var displayedCropRect: CGRect?
     private var displayedSliceRect: CGRect?
+    private var displayedSliceRects: [CGRect] = []
     private var displayedTransformGeometry: TransformOverlayGeometry?
     private var hoverTrackingArea: NSTrackingArea?
     private static let rotationCursor: NSCursor = {
@@ -674,6 +696,10 @@ final class CanvasView: NSView {
         }
         if displayedSliceRect != transformOverlay.selectedSliceViewRect {
             displayedSliceRect = transformOverlay.selectedSliceViewRect
+            window?.invalidateCursorRects(for: self)
+        }
+        if displayedSliceRects != transformOverlay.sliceViewRects {
+            displayedSliceRects = transformOverlay.sliceViewRects
             window?.invalidateCursorRects(for: self)
         }
         if displayedTransformGeometry != transformOverlay.geometry {
@@ -1555,6 +1581,13 @@ final class CanvasView: NSView {
         }
         addCursorRect(bounds, cursor: toolCursor)
         guard session.tool == .crop || session.tool == .slice, !spaceHeld else { return }
+        // Over a slice, the pointer that selects, moves and resizes it; Shift draws a new slice there, so keeps the knife.
+        if session.tool == .slice, !NSEvent.modifierFlags.contains(.shift) {
+            for rect in transformOverlay.sliceViewRects {
+                let visible = rect.intersection(bounds)
+                if !visible.isEmpty && !visible.isNull { addCursorRect(visible, cursor: Self.sliceSelectCursor) }
+            }
+        }
         let positions: [NSCursor.FrameResizePosition] = [.topLeft, .top, .topRight, .right, .bottomRight, .bottom, .bottomLeft, .left]
         let regions = session.tool == .slice ? transformOverlay.selectedSliceResizeRegions : transformOverlay.cropResizeRegions
         for region in regions.reversed() {

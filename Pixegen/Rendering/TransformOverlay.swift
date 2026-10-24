@@ -584,6 +584,11 @@ final class TransformOverlay: NSView {
               let slice = session.displayedSlices.first(where: { $0.id == id }) else { return nil }
         return sliceViewRect(slice.rect)
     }
+    /// Every slice as shown, in view coordinates and drawing order (the topmost last), while the Slice tool is on.
+    var sliceViewRects: [CGRect] {
+        guard session.tool == .slice, session.exportPanelOpen else { return [] }
+        return session.displayedSlices.compactMap { sliceViewRect($0.rect) }
+    }
     var selectedSliceResizeRegions: [(index: Int, rect: CGRect)] {
         selectedSliceViewRect.map(Self.resizeRegions(for:)) ?? []
     }
