@@ -41,11 +41,11 @@ jobs:
           if [[ "$EVENT" == push || "$EVENT" == pull_request ]] && [[ -n "$BASE" && ! "$BASE" =~ ^0+$ ]] \
              && git cat-file -e "$BASE^{commit}" 2>/dev/null; then
             git diff --name-only "$BASE" HEAD > changed.txt
-            pattern='^PixelBox/Document/(CameraRaw|Filters|HueSaturation|ImageAdjustments|Levels|Curves|Scanlines|Dither|PixelAdjust|AdjustmentEditing|LayerAdjustment)'
-            pattern+='|^PixelBox/Rendering/(AdjustPixels|LevelsPixels|DitherPixels|LensPixels|NoisePixels|GPUNoise|AdjustmentSurface)'
-            pattern+='|^PixelBox/UI/(CameraRaw|Curves|FilterSheet|HueSaturation|Levels)'
-            pattern+='|^PixelBoxTests/(CameraRaw|HueSaturation|ImageAdjustment|Levels|Filter|Scanlines|FinishingFilter)'
-            pattern+='|^PixelBox\.xcodeproj/|^\.github/workflows/verify\.yml|^scripts/ci-tests\.sh'
+            pattern='^Pixegen/Document/(CameraRaw|Filters|HueSaturation|ImageAdjustments|Levels|Curves|Scanlines|Dither|PixelAdjust|AdjustmentEditing|LayerAdjustment)'
+            pattern+='|^Pixegen/Rendering/(AdjustPixels|LevelsPixels|DitherPixels|LensPixels|NoisePixels|GPUNoise|AdjustmentSurface)'
+            pattern+='|^Pixegen/UI/(CameraRaw|Curves|FilterSheet|HueSaturation|Levels)'
+            pattern+='|^PixegenTests/(CameraRaw|HueSaturation|ImageAdjustment|Levels|Filter|Scanlines|FinishingFilter)'
+            pattern+='|^Pixegen\.xcodeproj/|^\.github/workflows/verify\.yml|^scripts/ci-tests\.sh'
             grep -qE "$pattern" changed.txt || filters=false
           fi
           echo "filters=$filters" >> "$GITHUB_OUTPUT"
@@ -57,8 +57,8 @@ jobs:
       - name: Resolve Swift packages
         run: >
           xcodebuild -resolvePackageDependencies
-          -project PixelBox.xcodeproj
-          -scheme PixelBox
+          -project Pixegen.xcodeproj
+          -scheme Pixegen
           -onlyUsePackageVersionsFromResolvedFile
 
       # Optimized, as in a release, still testable: unoptimized, pixel loops (the app's and the tests' own) take
@@ -67,8 +67,8 @@ jobs:
         id: build
         run: >
           xcodebuild build-for-testing
-          -project PixelBox.xcodeproj
-          -scheme PixelBox
+          -project Pixegen.xcodeproj
+          -scheme Pixegen
           -destination 'platform=macOS,arch=arm64'
           -configuration Debug
           -derivedDataPath DerivedData
@@ -90,11 +90,11 @@ jobs:
           path: |
             *.xcresult
             *.log
-            ~/Library/Logs/DiagnosticReports/PixelBox*.ips
+            ~/Library/Logs/DiagnosticReports/Pixegen*.ips
           retention-days: 7
           if-no-files-found: ignore
 
-  # Screenshots of the main screens (PixelBoxUITests/ScreenshotTests), kept with the run to look at. Informational:
+  # Screenshots of the main screens (PixegenUITests/ScreenshotTests), kept with the run to look at. Informational:
   # a screen that couldn't be reached doesn't fail the run.
   screenshots:
     name: screenshots
@@ -116,7 +116,7 @@ jobs:
       - name: Take screenshots
         run: >
           xcodebuild test
-          -project PixelBox.xcodeproj
+          -project Pixegen.xcodeproj
           -scheme Screenshots
           -destination 'platform=macOS,arch=arm64'
           -derivedDataPath DerivedData

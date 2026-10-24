@@ -1,15 +1,15 @@
-# Writing PixelBox projects (for AI agents and scripts)
+# Writing Pixegen projects (for AI agents and scripts)
 
-A PixelBox project (`.pbox`) is a folder of PNG layer images plus a `manifest.json`. Anything that can write files can build or edit one, and PixelBox updates the open canvas as the files change. No plugin or API is involved.
+A Pixegen project (`.pbox`) is a folder of PNG layer images plus a `manifest.json`. Anything that can write files can build or edit one, and Pixegen updates the open canvas as the files change. No plugin or API is involved.
 
 ## Try it
 
-1. Open a project in PixelBox (save a new canvas somewhere, e.g. `~/Desktop/demo.pbox`), and keep it open.
+1. Open a project in Pixegen (save a new canvas somewhere, e.g. `~/Desktop/demo.pbox`), and keep it open.
 2. Ask an AI agent that can edit files on your Mac (Claude Code, Codex and the like):
 
-   > Read docs/writing-pbox-files.md in github.com/twlatl/PixelBox, then design a moody night scene in ~/Desktop/demo.pbox. Work in steps, one or two layers at a time.
+   > Read docs/writing-pbox-files.md in github.com/twlatl/Pixegen, then design a moody night scene in ~/Desktop/demo.pbox. Work in steps, one or two layers at a time.
 
-3. Watch the canvas. Each time the agent writes the project, PixelBox reloads it, usually within half a second.
+3. Watch the canvas. Each time the agent writes the project, Pixegen reloads it, usually within half a second.
 
 What you get are ordinary layers: select them, change their opacity or blend mode, paint on their masks, save.
 
@@ -27,7 +27,7 @@ A minimal manifest with one full-canvas image layer:
 
 ```json
 {
-  "format": "net.pixegen.pixelbox.project",
+  "format": "net.pixegen.pixegen.project",
   "version": 11,
   "colorSpace": "sRGB",
   "documentID": "0C5E7A91-3B2D-4F6A-8E1C-9D0B7A6F5E4D",
@@ -65,31 +65,31 @@ A minimal manifest with one full-canvas image layer:
 
 ## Rules that matter
 
-Break one of these and PixelBox refuses the whole file **without any message**: the open canvas just stays as it was. If nothing updates, check these first.
+Break one of these and Pixegen refuses the whole file **without any message**: the open canvas just stays as it was. If nothing updates, check these first.
 
 - **Image files are named after their layer.** A layer with `"id": "6F1D…"` must use `"imageFile": "6F1D….png"`, and a mask `"maskFile": "6F1D….mask.png"`, with the ID in uppercase as written in the manifest. One ID per layer, unique in the project.
 - **Images are 8-bit PNGs** in `images/`. Layer images are RGBA; masks are 8-bit grayscale (white shows the layer, black hides it).
-- **Blend modes are spelled exactly** as PixelBox names them: `Normal`, `Darken`, `Multiply`, `Color Burn`, `Linear Burn`, `Lighten`, `Screen`, `Color Dodge`, `Linear Dodge (Add)`, `Overlay`, `Soft Light`, `Hard Light`, `Vivid Light`, `Linear Light`, `Pin Light`, `Hard Mix`, `Difference`, `Exclusion`, `Subtract`, `Divide`, `Hue`, `Saturation`, `Color`, `Luminosity`.
+- **Blend modes are spelled exactly** as Pixegen names them: `Normal`, `Darken`, `Multiply`, `Color Burn`, `Linear Burn`, `Lighten`, `Screen`, `Color Dodge`, `Linear Dodge (Add)`, `Overlay`, `Soft Light`, `Hard Light`, `Vivid Light`, `Linear Light`, `Pin Light`, `Hard Mix`, `Difference`, `Exclusion`, `Subtract`, `Divide`, `Hue`, `Saturation`, `Color`, `Luminosity`.
 - **Every layer the manifest names has its image in place**, and the manifest is valid JSON.
 
 ## Writing safely while the project is open
 
-PixelBox reads the project as soon as it changes, so never leave it half written:
+Pixegen reads the project as soon as it changes, so never leave it half written:
 
 1. Write any new or changed PNGs into `images/` first.
-2. Then write the manifest to a temporary file inside the package (for example `.manifest.json.tmp`) and rename it over `manifest.json`. A rename is atomic: PixelBox sees either the old manifest or the new one, never part of one.
+2. Then write the manifest to a temporary file inside the package (for example `.manifest.json.tmp`) and rename it over `manifest.json`. A rename is atomic: Pixegen sees either the old manifest or the new one, never part of one.
 
 To change an existing layer, keep its `id` and overwrite its PNG, then rewrite the manifest. The layer updates in place, in the same spot in the stack.
 
 Remove images you no longer reference once the manifest no longer lists them.
 
-A project PixelBox saved also has a `QuickLook` folder (`Preview.jpg`), which Finder shows as its Space-bar preview. When you change a project, delete that folder, so Finder doesn't preview an out-of-date picture; PixelBox writes it again the next time it saves.
+A project Pixegen saved also has a `QuickLook` folder (`Preview.jpg`), which Finder shows as its Space-bar preview. When you change a project, delete that folder, so Finder doesn't preview an out-of-date picture; Pixegen writes it again the next time it saves.
 
 ## What the open app does
 
 - It reloads about a third of a second after writes stop. Several writes in quick succession arrive as one update, so pause briefly between steps if a viewer should see each one.
 - A reload keeps the zoom, scroll and selection, but clears undo, as reopening a file does.
-- If the person has unsaved changes of their own, PixelBox asks them to revert to your version or keep theirs, and never replaces their work silently.
+- If the person has unsaved changes of their own, Pixegen asks them to revert to your version or keep theirs, and never replaces their work silently.
 - A write that fails to load is ignored until the next change, so a mistake you then fix will still show up.
 - Changes are noticed from the manifest's contents and from each image's name and size, not from when files were written. Rewriting a PNG with different pixels changes its size in practice. If you replace an image with one of exactly the same byte size, also make a change to the manifest, such as renaming the layer; writing identical manifest bytes back isn't enough.
 
@@ -130,7 +130,7 @@ An adjustment layer has an `adjustment` object and no `imageFile`, and it affect
 - `ranges` and `channels` run RGB, then red, green, blue. Curve points run from x 0 to x 255, in increasing x.
 - `kind` is one of `Hue/Saturation`, `Levels`, `Curves`, `Exposure`, `Gradient Map`, `Grain`, `Invert`, `Black & White`, `Color Balance`, `Gaussian Blur`, `Motion Blur`, `Add Noise`.
 - For Hue/Saturation, set `hue`, `saturation` and `lightness` on the adjustment itself. Color Balance takes a `colorBalanceSettings` object (`shadowCyanRed`, `shadowMagentaGreen`, `shadowYellowBlue`, and the same for `mid` and `highlight`, each −100 to 100, plus `preserveLuminosity`).
-- For the other kinds, the easiest way to get the exact shape is to add one in PixelBox, save, and copy it from that project's manifest.
+- For the other kinds, the easiest way to get the exact shape is to add one in Pixegen, save, and copy it from that project's manifest.
 
 ## More
 
