@@ -69,11 +69,13 @@ struct CanvasDocument: Equatable {
     var guides: [CanvasGuide] = []
     /// The Swatches palette's folders. Nil until they are first changed, showing the defaults. Saved; undo covers them.
     var swatchGroups: [SwatchGroup]?
+    /// Regions exported on their own (File › Export for Web), oldest first. Saved; undo covers them.
+    var slices: [CanvasSlice] = []
     /// Part of the document so undo/redo covers selection changes. Not saved to disk.
     var selection: DocumentSelection?
     var size: CGSize { CGSize(width: width, height: height) }
     init(id: UUID = UUID(), width: Int, height: Int, layers: [ImageLayer] = [], resolution: Double = 72, guides: [CanvasGuide] = [],
-         swatchGroups: [SwatchGroup]? = nil) {
+         swatchGroups: [SwatchGroup]? = nil, slices: [CanvasSlice] = []) {
         self.id = id
         self.width = width
         self.height = height
@@ -81,6 +83,7 @@ struct CanvasDocument: Equatable {
         self.resolution = resolution
         self.guides = guides
         self.swatchGroups = swatchGroups
+        self.slices = slices
     }
 
     // Geometry limit; raster memory limits will be established with image import.
@@ -92,15 +95,15 @@ struct CanvasDocument: Equatable {
 }
 
 enum NavigationTool: String, CaseIterable {
-    case move, marquee, lasso, wand, crop, brush, spotHealing, cloneStamp, blur, gradient, pathSelection, shape, type, eyedropper, hand, zoom
+    case move, marquee, lasso, wand, crop, slice, brush, spotHealing, cloneStamp, blur, gradient, pathSelection, shape, type, eyedropper, hand, zoom
     /// No tool (in the command palette): nothing in the tool rail is selected and canvas clicks do nothing.
     case idle
     /// Tools that paint with the brush tip, sharing its size, hardness, opacity, and keys.
     var isBrushTool: Bool { self == .brush || self == .spotHealing || self == .cloneStamp || self == .blur }
     /// Tools that draw and edit selections, sharing modifiers, moving, and nudging.
     var isSelectionTool: Bool { self == .marquee || self == .lasso || self == .wand }
-    var symbol: String { self == .type ? "textformat" : self == .eyedropper ? "eyedropper" : self == .marquee ? "rectangle.dashed" : self == .lasso ? "lasso" : self == .wand ? "wand.and.stars" : self == .brush ? "paintbrush.pointed" : self == .spotHealing ? "bandage" : self == .cloneStamp ? "seal" : self == .blur ? "drop" : self == .gradient ? "square.bottomhalf.filled" : self == .shape ? "square.on.circle" : self == .pathSelection ? "cursorarrow" : self == .crop ? "crop" : self == .move ? "arrow.up.left.and.arrow.down.right" : self == .hand ? "hand.draw" : "magnifyingglass" }
-    var label: String { self == .type ? "Type (T)" : self == .eyedropper ? "Eyedropper (I)" : self == .marquee ? "Marquee (M)" : self == .lasso ? "Lasso (L)" : self == .wand ? "Magic (W) · Tab switches Wand and Object" : self == .brush ? "Brush (B) · Eraser (E)" : self == .spotHealing ? "Spot Healing Brush (J)" : self == .cloneStamp ? "Clone Stamp (S) · Option-click sets the source" : self == .blur ? "Smear (R)" : self == .gradient ? "Gradient (G)" : self == .shape ? "Shape (U) · Shift-U steps through the shapes · Hold for more shapes" : self == .pathSelection ? "Path Selection (A) · Shift-A switches to Direct Selection · Hold for both" : self == .crop ? "Crop (C)" : self == .move ? "Move / Transform (V)" : self == .hand ? "Hand (H)" : "Zoom (Z)" }
+    var symbol: String { self == .type ? "textformat" : self == .eyedropper ? "eyedropper" : self == .marquee ? "rectangle.dashed" : self == .lasso ? "lasso" : self == .wand ? "wand.and.stars" : self == .brush ? "paintbrush.pointed" : self == .spotHealing ? "bandage" : self == .cloneStamp ? "seal" : self == .blur ? "drop" : self == .gradient ? "square.bottomhalf.filled" : self == .shape ? "square.on.circle" : self == .pathSelection ? "cursorarrow" : self == .crop ? "crop" : self == .slice ? "scissors" : self == .move ? "arrow.up.left.and.arrow.down.right" : self == .hand ? "hand.draw" : "magnifyingglass" }
+    var label: String { self == .type ? "Type (T)" : self == .eyedropper ? "Eyedropper (I)" : self == .marquee ? "Marquee (M)" : self == .lasso ? "Lasso (L)" : self == .wand ? "Magic (W) · Tab switches Wand and Object" : self == .brush ? "Brush (B) · Eraser (E)" : self == .spotHealing ? "Spot Healing Brush (J)" : self == .cloneStamp ? "Clone Stamp (S) · Option-click sets the source" : self == .blur ? "Smear (R)" : self == .gradient ? "Gradient (G)" : self == .shape ? "Shape (U) · Shift-U steps through the shapes · Hold for more shapes" : self == .pathSelection ? "Path Selection (A) · Shift-A switches to Direct Selection · Hold for both" : self == .crop ? "Crop (C)" : self == .slice ? "Slice (K) · Export for Web (⌘E)" : self == .move ? "Move / Transform (V)" : self == .hand ? "Hand (H)" : "Zoom (Z)" }
 }
 
 @Observable
@@ -109,6 +112,16 @@ final class EditorSession {
     var document: CanvasDocument?
     var canvasFocusRequest = 0
     var showsSampleRing = true
+    /// File › Export for Web: the Export panel stands in for the Layers panel, and the slices show on the canvas.
+    var exportPanelOpen = false
+    /// The slice the Export panel shows the formats of.
+    var selectedSliceID: UUID?
+    /// A slice being drawn (no id) or moved or resized on the canvas, in document pixels.
+    var sliceDraft: (id: UUID?, rect: CGRect)?
+    /// The tool to go back to when the Export panel closes.
+    @ObservationIgnored var toolBeforeExport: NavigationTool?
+    /// The last slice change that may be folded into its undo step.
+    @ObservationIgnored var lastSliceEdit: (id: UUID, name: String, time: Date)?
     var adjustmentOriginal: LayerAdjustment?
     var adjustmentEditingID: UUID? { didSet { resumeFileRequests() } }
     /// The layer whose effects panel is open.
@@ -450,7 +463,9 @@ final class EditorSession {
             settings.opacity = parked.opacity
             brushSettings = settings
         }
+        let previous = tool
         tool = value
+        updateExportPanel(from: previous, to: value)
         if value.isBrushTool { _ = MetalBrushCoverage.shared }
         if value == .crop, cropRect == nil, let document {
             cropRatioChoice = "Free"

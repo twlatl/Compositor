@@ -75,6 +75,10 @@ struct PixegenApp: App {
                     Button("Export PNG…") { Task { await applicationDelegate.projects.exportPNG() } }
                         .configuredKeyboardShortcut("e", modifiers: [.command, .shift])
                         .disabled(session.document == nil || !applicationDelegate.projects.canStart)
+                    // Slices, each in its own formats, from the Export panel.
+                    Button("Export for Web…") { session.openExportPanel() }
+                        .configuredKeyboardShortcut("e")
+                        .disabled(session.document == nil || !applicationDelegate.projects.canStart || session.exportPanelOpen)
                     // PNG, JPEG or PDF, sized and previewed; ⌥⇧⌘W, as Photoshop's Export As.
                     Button("Export As…") { Task { await applicationDelegate.projects.exportAs() } }
                         .configuredKeyboardShortcut("w", modifiers: [.command, .option, .shift])
@@ -372,7 +376,7 @@ struct PixegenApp: App {
                         .configuredKeyboardShortcut("[").disabled(!session.canMoveActiveLayer(by: -1))
                     Group {
                         Button(session.mergeTitle) { session.mergeLayers() }
-                            .configuredKeyboardShortcut("e").disabled(!session.canMergeLayers)
+                            .configuredKeyboardShortcut("e", modifiers: [.command, .option]).disabled(!session.canMergeLayers)
                         Divider()
                         Button("Flip Layer Horizontal") { session.flipLayers(horizontally: true) }
                             .disabled(!session.canTransform)
