@@ -48,7 +48,8 @@ struct ShapeStyleControls: View {
 
     /// The selected shape layer's style, when the bar is editing one.
     private var target: LayerShapeStyle? { session.shapeBarLayer?.liveShape?.style }
-    private var kind: ShapeKind { target?.kind ?? session.shapeKind }
+    /// What the bar's settings are for: the selected shape, or the next one drawn. A pen path is a custom shape.
+    private var kind: ShapeKind { target?.kind ?? (session.tool == .pen ? .custom : session.shapeKind) }
 
     /// A setting read from the selected shape when there is one, or from the tool. Setting it sets the tool's and
     /// changes the selected shape, as one undo step named `name` however many times it changes in a row.
@@ -115,7 +116,7 @@ struct ShapeStyleControls: View {
                 }
             }
             // An edited path is drawn as a custom shape too, but has no library shape to swap.
-            if kind == .custom, target == nil || target?.customName != nil { customShapeButton }
+            if kind == .custom, session.tool != .pen, target == nil || target?.customName != nil { customShapeButton }
         }
     }
 

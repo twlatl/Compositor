@@ -92,15 +92,55 @@ struct CanvasDocument: Equatable {
 }
 
 enum NavigationTool: String, CaseIterable {
-    case move, marquee, lasso, wand, crop, brush, spotHealing, cloneStamp, blur, gradient, pathSelection, shape, type, eyedropper, hand, zoom
+    case move, marquee, lasso, wand, crop, brush, spotHealing, cloneStamp, blur, gradient, pen, pathSelection, shape, type, eyedropper, hand, zoom
     /// No tool (in the command palette): nothing in the tool rail is selected and canvas clicks do nothing.
     case idle
     /// Tools that paint with the brush tip, sharing its size, hardness, opacity, and keys.
     var isBrushTool: Bool { self == .brush || self == .spotHealing || self == .cloneStamp || self == .blur }
     /// Tools that draw and edit selections, sharing modifiers, moving, and nudging.
     var isSelectionTool: Bool { self == .marquee || self == .lasso || self == .wand }
-    var symbol: String { self == .type ? "textformat" : self == .eyedropper ? "eyedropper" : self == .marquee ? "rectangle.dashed" : self == .lasso ? "lasso" : self == .wand ? "wand.and.stars" : self == .brush ? "paintbrush.pointed" : self == .spotHealing ? "bandage" : self == .cloneStamp ? "seal" : self == .blur ? "drop" : self == .gradient ? "square.bottomhalf.filled" : self == .shape ? "square.on.circle" : self == .pathSelection ? "cursorarrow" : self == .crop ? "crop" : self == .move ? "arrow.up.left.and.arrow.down.right" : self == .hand ? "hand.draw" : "magnifyingglass" }
-    var label: String { self == .type ? "Type (T)" : self == .eyedropper ? "Eyedropper (I)" : self == .marquee ? "Marquee (M)" : self == .lasso ? "Lasso (L)" : self == .wand ? "Magic (W) · Tab switches Wand and Object" : self == .brush ? "Brush (B) · Eraser (E)" : self == .spotHealing ? "Spot Healing Brush (J)" : self == .cloneStamp ? "Clone Stamp (S) · Option-click sets the source" : self == .blur ? "Smear (R)" : self == .gradient ? "Gradient (G)" : self == .shape ? "Shape (U) · Shift-U steps through the shapes · Hold for more shapes" : self == .pathSelection ? "Path Selection (A) · Shift-A switches to Direct Selection · Hold for both" : self == .crop ? "Crop (C)" : self == .move ? "Move / Transform (V)" : self == .hand ? "Hand (H)" : "Zoom (Z)" }
+    var symbol: String {
+        switch self {
+        case .move: "arrow.up.left.and.arrow.down.right"
+        case .marquee: "rectangle.dashed"
+        case .lasso: "lasso"
+        case .wand: "wand.and.stars"
+        case .crop: "crop"
+        case .brush: "paintbrush.pointed"
+        case .spotHealing: "bandage"
+        case .cloneStamp: "seal"
+        case .blur: "drop"
+        case .gradient: "square.bottomhalf.filled"
+        case .pen: "pencil.tip"
+        case .pathSelection: "cursorarrow"
+        case .shape: "square.on.circle"
+        case .type: "textformat"
+        case .eyedropper: "eyedropper"
+        case .hand: "hand.draw"
+        case .zoom, .idle: "magnifyingglass"
+        }
+    }
+    var label: String {
+        switch self {
+        case .move: "Move / Transform (V)"
+        case .marquee: "Marquee (M)"
+        case .lasso: "Lasso (L)"
+        case .wand: "Magic (W) · Tab switches Wand and Object"
+        case .crop: "Crop (C)"
+        case .brush: "Brush (B) · Eraser (E)"
+        case .spotHealing: "Spot Healing Brush (J)"
+        case .cloneStamp: "Clone Stamp (S) · Option-click sets the source"
+        case .blur: "Smear (R)"
+        case .gradient: "Gradient (G)"
+        case .pen: "Pen (P) · Shift-P steps through the Pen tools · Hold for all five"
+        case .pathSelection: "Path Selection (A) · Shift-A switches to Direct Selection · Hold for both"
+        case .shape: "Shape (U) · Shift-U steps through the shapes · Hold for more shapes"
+        case .type: "Type (T)"
+        case .eyedropper: "Eyedropper (I)"
+        case .hand: "Hand (H)"
+        case .zoom, .idle: "Zoom (Z)"
+        }
+    }
 }
 
 @Observable
@@ -269,6 +309,11 @@ final class EditorSession {
     var selectedPathKnots: Set<PathKnot> = []
     /// A shape's path, or some of its points, being dragged with the Path Selection tool.
     var pathDrag: PathDrag?
+    var penMode = PenMode.pen
+    /// What a finished pen path makes: a shape layer, or the work path. The Pen has no Pixels mode.
+    var penOutput = ShapeMode.shape { didSet { if penOutput != .path { workPath = nil } } }
+    /// A path being drawn with the Pen tool, until it is finished or cancelled.
+    var penDraft: PenDraft?
     /// A color well's eyedropper, or the picker's, waiting for a click on the canvas; and the color it last sampled.
     var eyedropper: EyedropperRequest?
     @ObservationIgnored var eyedropperColor: PaletteColor?
@@ -440,7 +485,7 @@ final class EditorSession {
     func selectTool(_ value: NavigationTool) {
         if tool != value, !finishText() { return }
         guard !isProjectBusy, brushStroke == nil, warpStroke == nil, levels == nil else { return }
-        if tool != value { commitTransform(); cancelCrop(); resolveGradient(); cancelLasso(); cancelShape(); endPathDrag() }
+        if tool != value { commitTransform(); cancelCrop(); resolveGradient(); cancelLasso(); cancelShape(); cancelPen(); endPathDrag() }
         let from = Self.tipFamily(tool), to = Self.tipFamily(value)
         if from != to, let parked = parkedBrushTips[to] {
             parkedBrushTips[from] = (brushSettings.diameter, brushSettings.hardness, brushSettings.opacity)
@@ -479,6 +524,7 @@ final class EditorSession {
         case .lasso: toggleLassoKind()
         case .shape: toggleShapeKind()
         case .pathSelection: togglePathSelectionMode()
+        case .pen: cyclePenMode()
         case .brush: brushMode = next(brushMode)
         case .blur: blurMode = next(blurMode)
         case .spotHealing: spotHealingMode = next(spotHealingMode)

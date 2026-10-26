@@ -91,6 +91,7 @@ final class CanvasView: NSView {
     private var displayedState: DisplayState?
     private var displayedTool: NavigationTool?
     private var displayedPathSelectionMode = PathSelectionMode.path
+    private var displayedPenMode = PenMode.pen
     private var displayedPicking = false
     private var displayedTargeting = false
     private var optionHeld = false
@@ -206,6 +207,53 @@ final class CanvasView: NSView {
     /// Direct Selection.
     static let pathSelectionCursor = arrowCursor([(offset: 0, fill: .black, outline: .white)])
     static let directSelectionCursor = arrowCursor([(offset: 0, fill: .white, outline: .black)])
+    /// The Pen tool's nib, tip at the origin (y down), pointing up and to the left as the arrow does: a slit up its
+    /// middle to a round hole, and a collar where it would meet the pen. About 12 points each way.
+    static let penNibPath: CGPath = {
+        // Drawn pointing straight up, then turned an eighth of a turn.
+        let path = CGMutablePath()
+        path.addLines(between: [CGPoint(x: 0, y: 0), CGPoint(x: 5, y: 8.5), CGPoint(x: 3.6, y: 12.6),
+                                CGPoint(x: -3.6, y: 12.6), CGPoint(x: -5, y: 8.5)])
+        path.closeSubpath()
+        path.addRect(CGRect(x: -3.6, y: 13.8, width: 7.2, height: 3.4))
+        path.addEllipse(in: CGRect(x: -1.5, y: 6.3, width: 3, height: 3))
+        path.addRect(CGRect(x: -0.45, y: 1.6, width: 0.9, height: 5))
+        var turn = CGAffineTransform(rotationAngle: -.pi / 4)
+        return path.copy(using: &turn) ?? path
+    }()
+    /// The nib with a badge beside its tip: + for Add Anchor Point, − for Delete, a ring where a click closes the path.
+    private static func makePenCursor(badge: PenHover) -> NSCursor {
+        let tip = NSPoint(x: 4, y: 4)
+        let nib = NSBezierPath(cgPath: penNibPath)
+        nib.windingRule = .evenOdd
+        nib.transform(using: AffineTransform(translationByX: tip.x, byY: tip.y))
+        nib.lineJoinStyle = .round
+        nib.lineWidth = 2
+        var shapes: [(path: NSBezierPath, fill: NSColor, outline: NSColor)] = [(nib, .black, .white)]
+        let center = NSPoint(x: 20, y: 6)
+        let mark = NSBezierPath()
+        switch badge {
+        case .add:
+            mark.append(NSBezierPath(rect: NSRect(x: center.x - 3.5, y: center.y - 0.75, width: 7, height: 1.5)))
+            mark.append(NSBezierPath(rect: NSRect(x: center.x - 0.75, y: center.y - 3.5, width: 1.5, height: 7)))
+        case .delete:
+            mark.append(NSBezierPath(rect: NSRect(x: center.x - 3.5, y: center.y - 0.75, width: 7, height: 1.5)))
+        case .close:
+            mark.append(NSBezierPath(ovalIn: NSRect(x: center.x - 3, y: center.y - 3, width: 6, height: 6)))
+            mark.append(NSBezierPath(ovalIn: NSRect(x: center.x - 1.6, y: center.y - 1.6, width: 3.2, height: 3.2)))
+            mark.windingRule = .evenOdd
+        case .none: break
+        }
+        if !mark.isEmpty {
+            mark.lineWidth = 2
+            shapes.append((mark, .black, .white))
+        }
+        return outlinedCursor(size: NSSize(width: 28, height: 28), hotSpot: tip, shapes)
+    }
+    static let penCursor = makePenCursor(badge: .none)
+    static let penAddCursor = makePenCursor(badge: .add)
+    static let penDeleteCursor = makePenCursor(badge: .delete)
+    static let penCloseCursor = makePenCursor(badge: .close)
     /// The arrow's corners, tip first (y down, about 12 × 19), shared by these pointers and the tool rail's icons.
     static let arrowOutline: [CGPoint] = [(0, 0), (0, 16.5), (3.9, 12.8), (6.6, 19), (9.2, 17.9), (6.6, 11.8), (11.8, 11.8)]
         .map { CGPoint(x: $0.0, y: $0.1) }
@@ -619,6 +667,12 @@ final class CanvasView: NSView {
             displayedPathSelectionMode = session.pathSelectionMode
             window?.invalidateCursorRects(for: self)
             if session.tool == .pathSelection, session.document != nil, !picking, let window,
+               bounds.contains(convert(window.mouseLocationOutsideOfEventStream, from: nil)) { restoreToolCursor() }
+        }
+        if displayedPenMode != session.penMode {
+            displayedPenMode = session.penMode
+            window?.invalidateCursorRects(for: self)
+            if session.tool == .pen, session.document != nil, !picking, let window,
                bounds.contains(convert(window.mouseLocationOutsideOfEventStream, from: nil)) { restoreToolCursor() }
         }
         if displayedPicking != picking || displayedTargeting != session.hueTargeting {
@@ -1498,8 +1552,21 @@ final class CanvasView: NSView {
             : session.tool == .type ? .iBeam
             : session.tool == .idle ? .arrow
             : session.tool == .pathSelection ? (session.pathSelectionMode == .direct ? Self.directSelectionCursor : Self.pathSelectionCursor)
+            : session.tool == .pen ? penCursor(at: window.map { convert($0.mouseLocationOutsideOfEventStream, from: nil) })
             : session.tool == .zoom ? (optionHeld ? Self.zoomOutCursor : Self.zoomInCursor)
             : .crosshair
+    }
+
+    /// The Pen tool's cursor at a view point: its badge says what a click there would do.
+    private func penCursor(at point: CGPoint?) -> NSCursor {
+        guard let point, let document = session.document else { return Self.penCursor }
+        let pixel = session.viewport.documentPoint(from: point, documentSize: document.size)
+        switch session.penHover(at: pixel, tolerance: 5 / max(session.viewport.pointsPerPixel, 0.0001)) {
+        case .add: return Self.penAddCursor
+        case .delete: return Self.penDeleteCursor
+        case .close: return Self.penCloseCursor
+        case .none: return Self.penCursor
+        }
     }
 
     override func resetCursorRects() {
@@ -1633,6 +1700,7 @@ final class CanvasView: NSView {
         loupe.isHidden = true
         brushPointer = nil
         updateBrushCursor()
+        if session.penDraft?.cursor != nil { session.movePenCursor(to: nil); synchronizeDisplay() }
         // Tools set their cursor directly while over the canvas, so put the arrow back on the
         // way out. A drag keeps its cursor until mouse-up.
         if session.document != nil, NSEvent.pressedMouseButtons == 0 {
@@ -1669,6 +1737,13 @@ final class CanvasView: NSView {
         if session.tool == .move { updateTransformCursor(at: convert(event.locationInWindow, from: nil), flags: event.modifierFlags) }
         // The arrow follows Shift-A even when the cursor rects haven't been rebuilt yet.
         else if session.tool == .pathSelection, !spaceHeld { toolCursor.set() }
+        else if session.tool == .pen, !spaceHeld, let document = session.document {
+            let point = convert(event.locationInWindow, from: nil)
+            let hadDraft = session.penDraft != nil
+            session.movePenCursor(to: session.viewport.documentPoint(from: point, documentSize: document.size))
+            penCursor(at: point).set()
+            if hadDraft { synchronizeDisplay() }
+        }
         else { super.mouseMoved(with: event) }
     }
     override func cursorUpdate(with event: NSEvent) {
@@ -1678,7 +1753,7 @@ final class CanvasView: NSView {
         // Cursor-update events carry no modifier flags (AppKit sends one after every key change), so read
         // the keys as they are now; the event's flags would undo Option's duplicate cursor straight away.
         else if session.tool == .move { updateTransformCursor(at: convert(event.locationInWindow, from: nil), flags: NSEvent.modifierFlags) }
-        else if session.tool == .pathSelection, !spaceHeld { toolCursor.set() }
+        else if session.tool == .pathSelection || session.tool == .pen, !spaceHeld { toolCursor.set() }
         else { super.cursorUpdate(with: event) }
     }
     private func updateTransformCursor(at point: CGPoint, flags: NSEvent.ModifierFlags = NSEvent.modifierFlags) {
@@ -1894,6 +1969,11 @@ final class CanvasView: NSView {
         } else if session.tool == .shape, let document = session.document {
             session.beginShape(at: snappedCorner(session.viewport.documentPoint(from: point, documentSize: document.size),
                                                  flags: event.modifierFlags))
+        } else if session.tool == .pen, let document = session.document {
+            session.beginPen(at: session.viewport.documentPoint(from: point, documentSize: document.size),
+                             tolerance: 5 / max(session.viewport.pointsPerPixel, 0.0001),
+                             constrain: event.modifierFlags.contains(.shift), clickCount: event.clickCount)
+            synchronizeDisplay()
         } else if session.tool == .pathSelection, let document = session.document {
             // Points are easy to hit at any zoom: a few screen points either way.
             session.beginPathDrag(at: session.viewport.documentPoint(from: point, documentSize: document.size),
@@ -1992,6 +2072,14 @@ final class CanvasView: NSView {
         if session.pathDrag != nil, lastDragPoint == nil, let document = session.document {
             session.dragPath(to: session.viewport.documentPoint(from: point, documentSize: document.size),
                              breaksHandle: event.modifierFlags.contains(.option))
+            synchronizeDisplay()
+            return
+        }
+        if session.penDraft?.press != nil, lastDragPoint == nil, let document = session.document {
+            let perPixel = max(session.viewport.pointsPerPixel, 0.0001)
+            session.dragPen(to: session.viewport.documentPoint(from: point, documentSize: document.size),
+                            constrain: event.modifierFlags.contains(.shift), breaksHandle: event.modifierFlags.contains(.option),
+                            threshold: 2 / perPixel, spacing: 1 / perPixel)
             synchronizeDisplay()
             return
         }
@@ -2200,6 +2288,12 @@ final class CanvasView: NSView {
             session.endPathDrag()
             synchronizeDisplay()
         }
+        if session.penDraft?.press != nil {
+            // The Freeform Pen's curves keep within a couple of screen points of where the pointer went.
+            session.endPen(tolerance: 2 / max(session.viewport.pointsPerPixel, 0.0001))
+            synchronizeDisplay()
+            restoreToolCursor()
+        }
         if hueTargetStart != nil {
             hueTargetStart = nil
             session.endHueTargeting()
@@ -2307,10 +2401,16 @@ final class CanvasView: NSView {
             else { session.removeLastLassoPoint() }
             synchronizeDisplay()
             refreshLassoCursor()
+        } else if session.penDraft != nil, [53, 36, 76, 51, 117].contains(event.keyCode) {
+            // Return leaves the path open; Delete takes back the last point.
+            if event.keyCode == 53 { session.cancelPen() }
+            else if [36, 76].contains(event.keyCode) { session.finishPen() }
+            else { session.removeLastPenPoint() }
+            synchronizeDisplay()
         } else if session.shapeDraft != nil, event.keyCode == 53 {
             session.cancelShape()
             synchronizeDisplay()
-        } else if session.tool == .shape, session.workPath != nil, [53, 36, 76].contains(event.keyCode) {
+        } else if session.tool == .shape || session.tool == .pen, session.workPath != nil, [53, 36, 76].contains(event.keyCode) {
             // Return makes the work path a selection, as ⌘Return does in Photoshop; Escape drops it.
             if event.keyCode == 53 { session.clearWorkPath() } else { session.makeSelectionFromWorkPath() }
             synchronizeDisplay()
@@ -2403,6 +2503,10 @@ final class CanvasView: NSView {
                 if event.modifierFlags.contains(.shift), session.tool == .pathSelection { session.togglePathSelectionMode() }
                 else { session.selectTool(.pathSelection) }
                 synchronizeDisplay()
+            case "p":
+                if event.modifierFlags.contains(.shift), session.tool == .pen { session.cyclePenMode() }
+                else { session.selectTool(.pen) }
+                synchronizeDisplay()
             case "r": session.selectTool(.blur)
             case "c": session.selectTool(.crop)
             case "v": session.selectTool(.move)
@@ -2427,6 +2531,8 @@ final class CanvasView: NSView {
         cropDrag = nil
         gradientDrag = nil
         session.cancelShape()
+        // A click-by-click pen path waits, as the polygonal lasso does; a freeform drag can't.
+        if session.penDraft?.mode == .freeform { session.cancelPen() }
         if let kind = session.lassoDraft?.kind, kind != .polygonal { session.cancelLasso() }
         if selectionDragStart != nil { selectionDragStart = nil; session.endSelectionMove() }
         if pixelDragStart != nil { pixelDragStart = nil; session.cancelPixelMove() }
