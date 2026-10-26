@@ -113,6 +113,11 @@ struct ShortcutDefinition: Identifiable {
             // No key by default, so they aren't hit by mistake; Photoshop's are ⌘Y and ⇧⌘Y.
             .init(title: "CMYK Proof Colors", group: "Menus", original: .unassigned),
             .init(title: "CMYK Gamut Warning", group: "Menus", original: .unassigned),
+            // Layer › Combine Shapes: no keys, as in Photoshop, but each can be given one.
+            .init(title: "Combine Shapes", group: "Menus", original: .unassigned),
+            .init(title: "Subtract Front Shape", group: "Menus", original: .unassigned),
+            .init(title: "Intersect Shape Areas", group: "Menus", original: .unassigned),
+            .init(title: "Exclude Overlapping Shapes", group: "Menus", original: .unassigned),
         ]
         for (title, key) in [("Toggle Fullscreen: the canvas alone on black (Esc also leaves)", "f"), ("Select tool", "a"), ("Move / Transform tool", "v"), ("Hand tool", "h"),
             ("Zoom tool", "z"), ("Brush tool", "b"), ("Eraser", "e"), ("Spot Healing", "j"),
