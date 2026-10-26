@@ -37,6 +37,48 @@ struct PathSelectionTests {
         return bytes[(y * image.width + x) * 4 + 3] > 128
     }
 
+    @Test func shiftClickingShapesSelectsThemAllKeepingTheFirstActive() {
+        let session = makeSession()
+        draw(session, .rectangle, from: CGPoint(x: 10, y: 10), to: CGPoint(x: 30, y: 30))
+        let first = session.activeLayerID
+        draw(session, .ellipse, from: CGPoint(x: 60, y: 40), to: CGPoint(x: 90, y: 70))
+        let second = session.activeLayerID
+        session.selectTool(.pathSelection)
+        session.beginPathDrag(at: CGPoint(x: 20, y: 20), tolerance: 3, extend: false)
+        session.endPathDrag()
+        session.beginPathDrag(at: CGPoint(x: 75, y: 55), tolerance: 3, extend: true)
+        #expect(session.pathDrag == nil, "a Shift-click on a shape selects it rather than dragging")
+        #expect(session.activeLayerID == first, "the shape clicked first stays the one the others act on")
+        #expect(session.selectedLayerIDs == Set([first, second].compactMap { $0 }))
+        #expect(session.canApplyShapeOperation)
+        #expect(session.otherSelectedShapeOutlines.count == 1, "the other selected shape's outline is drawn too")
+        session.beginPathDrag(at: CGPoint(x: 75, y: 55), tolerance: 3, extend: true)
+        #expect(session.selectedLayerIDs == Set([first].compactMap { $0 }), "Shift-clicking it again takes it away")
+        session.beginPathDrag(at: CGPoint(x: 20, y: 20), tolerance: 3, extend: true)
+        #expect(session.selectedLayerIDs == Set([first].compactMap { $0 }), "the last shape selected stays selected")
+    }
+
+    @Test func draggingOneOfSeveralSelectedShapesMovesThemAll() {
+        let session = makeSession()
+        draw(session, .rectangle, from: CGPoint(x: 10, y: 10), to: CGPoint(x: 30, y: 30))
+        let first = session.activeLayerID
+        draw(session, .ellipse, from: CGPoint(x: 60, y: 40), to: CGPoint(x: 90, y: 70))
+        let second = session.activeLayerID
+        session.selectTool(.pathSelection)
+        session.beginPathDrag(at: CGPoint(x: 20, y: 20), tolerance: 3, extend: false)
+        session.endPathDrag()
+        session.beginPathDrag(at: CGPoint(x: 75, y: 55), tolerance: 3, extend: true)
+        // Dragging the shape that isn't active.
+        let count = session.history.undoCount
+        drag(session, from: CGPoint(x: 75, y: 55), to: CGPoint(x: 80, y: 57))
+        #expect(session.history.undoCount == count + 1)
+        #expect(session.selectedLayerIDs.count == 2, "both stay selected")
+        #expect(session.activeLayerID == first, "the active shape stays the one the others act on")
+        let layers = session.document?.layers ?? []
+        #expect(layers.first { $0.id == first }?.transform.origin == CGPoint(x: 15, y: 12))
+        #expect(layers.first { $0.id == second }?.transform.origin == CGPoint(x: 65, y: 42))
+    }
+
     @Test func aRectanglesPathIsItsFourCorners() {
         let session = makeSession()
         draw(session, .rectangle, from: CGPoint(x: 10, y: 10), to: CGPoint(x: 40, y: 30))

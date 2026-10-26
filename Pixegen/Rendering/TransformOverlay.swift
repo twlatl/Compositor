@@ -352,6 +352,9 @@ final class TransformOverlay: NSView {
         guard session.tool == .pathSelection, let knots = session.pathKnotsInDocument, let transform = documentToView,
               let context = NSGraphicsContext.current?.cgContext else { return }
         var toView = transform
+        for outline in session.otherSelectedShapeOutlines {
+            if let path = outline.copy(using: &toView) { CanvasView.strokeOutline(path, in: context) }
+        }
         guard let outline = ShapeOutline.path(of: knots).copy(using: &toView) else { return }
         CanvasView.strokeOutline(outline, in: context)
         let selected = session.shownPathKnots
