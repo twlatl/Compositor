@@ -1,25 +1,66 @@
 {
   "fill" : {
     "linear-gradient" : [
-      "display-p3:1.00000,0.88905,0.34295,1.00000",
-      "display-p3:0.96783,0.28796,0.18860,1.00000"
+      "srgb:1.00000,0.46939,0.11843,1.00000",
+      "srgb:1.00000,0.00000,0.29698,1.00000"
     ]
   },
   "groups" : [
     {
       "layers" : [
         {
+          "blend-mode" : "soft-light",
           "fill" : {
-            "solid" : "display-p3:0.91385,0.96783,0.96405,1.00000"
+            "linear-gradient" : [
+              "display-p3:0.11352,0.07680,0.35165,1.00000",
+              "extended-srgb:0.00000,0.53333,1.00000,1.00000"
+            ]
           },
-          "glass" : false,
-          "image-name" : "SVG image.svg",
-          "name" : "SVG image",
+          "hidden" : false,
+          "image-name" : "PixegenApp-BG.png",
+          "name" : "PixegenApp-BG",
           "position" : {
-            "scale" : 5.74,
+            "scale" : 1.73,
             "translation-in-points" : [
               0,
               0
+            ]
+          }
+        },
+        {
+          "blend-mode" : "normal",
+          "hidden" : false,
+          "image-name" : "Parrott.png",
+          "name" : "Parrott",
+          "position" : {
+            "scale" : 1.71,
+            "translation-in-points" : [
+              -107,
+              380
+            ]
+          }
+        },
+        {
+          "hidden" : true,
+          "image-name" : "Generated Image.png",
+          "name" : "Generated Image",
+          "position" : {
+            "scale" : 1,
+            "translation-in-points" : [
+              -15,
+              31
+            ]
+          }
+        },
+        {
+          "hidden" : true,
+          "image-name" : "parrott 3.png",
+          "name" : "parrott 3",
+          "position" : {
+            "scale" : 2.96,
+            "translation-in-points" : [
+              -741,
+              672
             ]
           }
         }

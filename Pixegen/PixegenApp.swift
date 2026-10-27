@@ -92,6 +92,9 @@ struct PixegenApp: App {
                 }
                 // Grouped: a commands builder takes at most ten items.
                 Group {
+                    CommandGroup(replacing: .appInfo) {
+                        Button("About Pixegen") { AboutWindowController.shared.show() }
+                    }
                     CommandGroup(after: .appInfo) {
                         Button("Check for Updates…") { applicationDelegate.updater.checkForUpdates() }
                     }
