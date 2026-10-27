@@ -5,7 +5,7 @@ final class PixegenApplicationDelegate: NSObject, NSApplicationDelegate {
     let workspace = ProjectWorkspace()
     var session: EditorSession { workspace.current.session }
     var projects: ProjectController { workspace.current.controller }
-    /// The projects' windows, grouped as native tabs.
+    /// The projects' windows, each with its tabs.
     private(set) lazy var windows = ProjectWindows(applicationDelegate: self)
     /// Checks the update feed and installs new versions (Sparkle), offering each one with what's new listed in it.
     /// Started only after launch: its first-run prompt, shown during launch, kept the editor window from ever opening.

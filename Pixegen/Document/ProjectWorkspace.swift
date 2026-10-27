@@ -11,6 +11,11 @@ final class ProjectTab: Identifiable {
     var title: String {
         (session.projectURL ?? session.photoshopSource)?.deletingPathExtension().lastPathComponent ?? defaultName
     }
+    /// What its tab shows after the name: the zoom, as "@ 50%". Nil before there's a canvas.
+    var zoomLabel: String? {
+        guard session.document != nil else { return nil }
+        return "@ " + Double(session.viewport.zoom).formatted(.percent.precision(.fractionLength(0...1)))
+    }
     init(name: String) {
         defaultName = name
         session = EditorSession()
@@ -18,7 +23,7 @@ final class ProjectTab: Identifiable {
     }
 }
 
-/// Puts projects on screen: each in a window of its own, grouped as native macOS tabs. The workspace decides which
+/// Puts projects on screen: as tabs in windows, as many to a window as are tabbed together. The workspace decides which
 /// project goes where; this makes and closes the windows. Absent in tests, where projects never reach the screen.
 @MainActor
 protocol ProjectWindowPresenting: AnyObject {
@@ -29,6 +34,12 @@ protocol ProjectWindowPresenting: AnyObject {
     func close(_ tab: ProjectTab)
     /// Whether the tab has a window yet (or still): a tab in a group counts, shown or not.
     func hasWindow(_ tab: ProjectTab) -> Bool
+    /// The projects tabbed together with the tab's window, in tab order: the tab alone when its window stands alone.
+    func group(of tab: ProjectTab) -> [ProjectTab]
+    /// Moves the tab to `index` among the tabs of its window's group.
+    func move(_ tab: ProjectTab, to index: Int)
+    /// Takes the tab out of its group into a window of its own.
+    func moveToNewWindow(_ tab: ProjectTab)
 }
 
 /// Every open project, in whichever window or tab it's shown. Copying layers between projects, Paste of a copied
@@ -40,6 +51,15 @@ final class ProjectWorkspace {
     private(set) var selectedID: UUID
     var isManaging = false
     @ObservationIgnored weak var presenter: ProjectWindowPresenting?
+    /// Counts changes to which windows are tabbed together, and in what order, which AppKit doesn't report, so that each
+    /// window's tab bar lists its group afresh.
+    private(set) var windowLayout = 0
+    func noteWindowLayoutChanged() { windowLayout &+= 1 }
+    /// The tabs shown in `tab`'s window, in order: every project when nothing puts them on screen, as in tests.
+    func tabsGrouped(with tab: ProjectTab) -> [ProjectTab] {
+        _ = windowLayout
+        return presenter?.group(of: tab) ?? tabs
+    }
     var current: ProjectTab { tabs.first { $0.id == selectedID } ?? tabs[0] }
     /// Whether a project is free for the workspace to work on: nothing of the workspace's own running (an Open panel,
     /// Quit's questions), and nothing in progress in it that a close or a drop would cut across.
@@ -160,6 +180,24 @@ final class ProjectWorkspace {
         defer { isManaging = false }
         guard await tab.controller.confirmQuit() else { return }
         removeTab(id)
+    }
+    /// Closes the other tabs in `id`'s window, one at a time, each asked about as Close would; stops at the first kept.
+    func closeOthers(_ id: UUID) async {
+        guard let tab = tabs.first(where: { $0.id == id }) else { return }
+        await closeEach(tabsGrouped(with: tab).filter { $0.id != id })
+    }
+    /// The window's close button: every tab in `id`'s window, the one shown first.
+    func closeWindow(of id: UUID) async {
+        guard let tab = tabs.first(where: { $0.id == id }) else { return }
+        await closeEach([tab] + tabsGrouped(with: tab).filter { $0.id != id })
+    }
+    private func closeEach(_ closing: [ProjectTab]) async {
+        for tab in closing {
+            // Its question asked where it can be seen.
+            if closing.count > 1 { select(tab.id) }
+            await close(tab.id)
+            guard !tabs.contains(where: { $0 === tab }) else { return }
+        }
     }
     /// Takes a project out and closes its window. With the last one gone a blank project waits, windowless, for the
     /// window the Dock or File › New brings back.

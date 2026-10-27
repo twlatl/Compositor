@@ -38,7 +38,7 @@ struct PixegenApp: App {
                     }
                 }
                 CommandGroup(replacing: .newItem) {
-                    // In a new tab of the front window; the tab bar's + does the same.
+                    // In a new tab of the front window; the toolbar's + does the same.
                     Button("New Canvas…") { applicationDelegate.workspace.newCanvas() }
                         .configuredKeyboardShortcut("n")
                         .disabled(applicationDelegate.workspace.isManaging)
@@ -190,6 +190,18 @@ struct PixegenApp: App {
                         Button("Hide Others") { NSApp.hideOtherApplications(nil) }
                             .configuredKeyboardShortcut("h", modifiers: [.command, .option])
                         Button("Show All") { NSApp.unhideAllApplications(nil) }
+                    }
+                    // The window's tabs are Pixegen's own (see `ProjectWindows`), so are their commands.
+                    CommandGroup(before: .windowArrangement) {
+                        Button("Show Previous Tab") { NSApp.sendAction(#selector(NSWindow.selectPreviousTab(_:)), to: nil, from: nil) }
+                            .keyboardShortcut(.tab, modifiers: [.control, .shift])
+                        Button("Show Next Tab") { NSApp.sendAction(#selector(NSWindow.selectNextTab(_:)), to: nil, from: nil) }
+                            .keyboardShortcut(.tab, modifiers: .control)
+                        Button("Move Tab to New Window") {
+                            applicationDelegate.windows.moveToNewWindow(applicationDelegate.workspace.current)
+                        }
+                        Button("Merge All Windows") { NSApp.sendAction(#selector(NSWindow.mergeAllWindows(_:)), to: nil, from: nil) }
+                        Divider()
                     }
                 }
                 CommandGroup(replacing: .pasteboard) {
