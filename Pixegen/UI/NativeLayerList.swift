@@ -806,7 +806,7 @@ final class LayerTableView: NSTableView {
             session?.resetPaletteColors()
         } else if plain, event.charactersIgnoringModifiers?.lowercased() == "t" {
             session?.selectTool(.type)
-        } else if plain, ["a", "v", "h", "z", "b", "e", "g", "l", "m", "w", "j", "s", "u", "r", "i", "c", "p"].contains(event.charactersIgnoringModifiers?.lowercased() ?? "") {
+        } else if plain, ["a", "v", "h", "z", "b", "e", "g", "l", "m", "w", "j", "s", "u", "r", "i", "c", "k", "p"].contains(event.charactersIgnoringModifiers?.lowercased() ?? "") {
             let key = event.charactersIgnoringModifiers?.lowercased()
             if key == "m" { if !event.isARepeat { session?.pressMarqueeKey() } }
             else if key == "l" { if !event.isARepeat { session?.pressLassoKey() } }
@@ -816,7 +816,7 @@ final class LayerTableView: NSTableView {
             }
             else if key == "w" { if !event.isARepeat { session?.pressWandKey() } }
             else {
-                let tools: [String: NavigationTool] = ["a": .pathSelection, "i": .eyedropper, "c": .crop, "r": .blur, "g": .gradient,
+                let tools: [String: NavigationTool] = ["a": .pathSelection, "i": .eyedropper, "c": .crop, "k": .slice, "r": .blur, "g": .gradient,
                                                        "j": .spotHealing, "s": .cloneStamp, "u": .shape, "p": .pen, "v": .move, "h": .hand]
                 session?.selectTool(tools[key ?? ""] ?? .zoom)
             }

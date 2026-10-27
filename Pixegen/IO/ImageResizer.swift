@@ -17,7 +17,7 @@ actor ImageResizer {
         let old = snapshot.manifest
         var manifest = ProjectManifest(resolution: options.resolution, documentID: old.documentID,
             width: options.width, height: options.height, activeLayerID: old.activeLayerID, layers: [],
-            guides: old.guides, swatchGroups: old.swatchGroups)
+            guides: old.guides, swatchGroups: old.swatchGroups, slices: old.slices)
         if old.width == options.width && old.height == options.height {
             manifest.layers = old.layers
             return ProjectSnapshot(manifest: manifest, images: snapshot.images, masks: snapshot.masks)
@@ -29,6 +29,11 @@ actor ImageResizer {
         // the two factors when the image is stretched. Live text and shapes are resampled into plain pixels.
         let effectScale = (sx * sy).squareRoot()
         manifest.guides = old.guides?.map { $0.scaled(x: sx, y: sy) }
+        manifest.slices = old.slices?.compactMap { slice in
+            slice.transformed(in: CGSize(width: options.width, height: options.height)) {
+                CGRect(x: $0.minX * sx, y: $0.minY * sy, width: $0.width * sx, height: $0.height * sy)
+            }
+        }
         var images: [UUID: ImportedImage] = [:]
         var masks: [UUID: ImportedImage] = [:]
         var usedPixels = 0, usedMaskPixels = 0
@@ -115,7 +120,7 @@ extension EditorSession {
         let m = snapshot.manifest
         document = CanvasDocument(id: m.documentID, width: m.width, height: m.height,
             layers: snapshot.documentLayers, resolution: m.resolution ?? 72, guides: m.guides ?? [],
-            swatchGroups: m.swatchGroups)
+            swatchGroups: m.swatchGroups, slices: m.slices ?? [])
         endEdit()
         viewport.fit(documentSize: document!.size)
     }

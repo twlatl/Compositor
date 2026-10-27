@@ -132,6 +132,19 @@ An adjustment layer has an `adjustment` object and no `imageFile`, and it affect
 - For Hue/Saturation, set `hue`, `saturation` and `lightness` on the adjustment itself. Color Balance takes a `colorBalanceSettings` object (`shadowCyanRed`, `shadowMagentaGreen`, `shadowYellowBlue`, and the same for `mid` and `highlight`, each −100 to 100, plus `preserveLuminosity`).
 - For the other kinds, the easiest way to get the exact shape is to add one in Pixegen, save, and copy it from that project's manifest.
 
+## Slices
+
+To set up regions for File › Export for Web, add a top-level `slices` array (the manifest's `version` must be at least `23`). Each slice needs a `name` and whole-pixel `x`, `y`, `width` and `height` inside the canvas; `formats` is optional and defaults to one 1× PNG:
+
+```json
+"slices": [
+  { "name": "Hero", "x": 0, "y": 0, "width": 1920, "height": 640,
+    "formats": [ { "type": "JPEG", "quality": 0.8 }, { "type": "JPEG", "scale": 2, "suffix": "@2x" } ] }
+]
+```
+
+`type` is one of `JPEG`, `PNG`, `WebP`, `SVG`, `GIF`, `MP4`. The person exports them from the Export panel (⌘E); the format's other options are in [project-format.md](project-format.md).
+
 ## More
 
 - Folders, text layers, layer effects and everything else the format holds: [project-format.md](project-format.md).

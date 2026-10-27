@@ -48,7 +48,13 @@ extension EditorSession {
         var turned = CanvasDocument(id: document.id, width: document.height, height: document.width, layers: layers,
                                     resolution: document.resolution,
                                     guides: document.guides.map { $0.quarterTurned(clockwise: clockwise, canvas: canvas) },
-                                    swatchGroups: document.swatchGroups)
+                                    swatchGroups: document.swatchGroups,
+                                    slices: document.slices.compactMap { slice in
+                                        slice.transformed(in: CGSize(width: canvas.height, height: canvas.width)) { rect in
+                                            clockwise ? CGRect(x: canvas.height - rect.maxY, y: rect.minX, width: rect.height, height: rect.width)
+                                                      : CGRect(x: rect.minY, y: canvas.width - rect.maxX, width: rect.height, height: rect.width)
+                                        }
+                                    })
         if let selection = document.selection {
             var turn = clockwise ? CGAffineTransform(a: 0, b: 1, c: -1, d: 0, tx: canvas.height, ty: 0)
                                  : CGAffineTransform(a: 0, b: -1, c: 1, d: 0, tx: 0, ty: canvas.width)

@@ -69,11 +69,13 @@ struct CanvasDocument: Equatable {
     var guides: [CanvasGuide] = []
     /// The Swatches palette's folders. Nil until they are first changed, showing the defaults. Saved; undo covers them.
     var swatchGroups: [SwatchGroup]?
+    /// Regions exported on their own (File › Export for Web), oldest first. Saved; undo covers them.
+    var slices: [CanvasSlice] = []
     /// Part of the document so undo/redo covers selection changes. Not saved to disk.
     var selection: DocumentSelection?
     var size: CGSize { CGSize(width: width, height: height) }
     init(id: UUID = UUID(), width: Int, height: Int, layers: [ImageLayer] = [], resolution: Double = 72, guides: [CanvasGuide] = [],
-         swatchGroups: [SwatchGroup]? = nil) {
+         swatchGroups: [SwatchGroup]? = nil, slices: [CanvasSlice] = []) {
         self.id = id
         self.width = width
         self.height = height
@@ -81,6 +83,7 @@ struct CanvasDocument: Equatable {
         self.resolution = resolution
         self.guides = guides
         self.swatchGroups = swatchGroups
+        self.slices = slices
     }
 
     // Geometry limit; raster memory limits will be established with image import.
@@ -92,7 +95,7 @@ struct CanvasDocument: Equatable {
 }
 
 enum NavigationTool: String, CaseIterable {
-    case move, marquee, lasso, wand, crop, brush, spotHealing, cloneStamp, blur, gradient, pen, pathSelection, shape, type, eyedropper, hand, zoom
+    case move, marquee, lasso, wand, crop, slice, brush, spotHealing, cloneStamp, blur, gradient, pen, pathSelection, shape, type, eyedropper, hand, zoom
     /// No tool (in the command palette): nothing in the tool rail is selected and canvas clicks do nothing.
     case idle
     /// Tools that paint with the brush tip, sharing its size, hardness, opacity, and keys.
@@ -106,6 +109,7 @@ enum NavigationTool: String, CaseIterable {
         case .lasso: "lasso"
         case .wand: "wand.and.stars"
         case .crop: "crop"
+        case .slice: "scissors"
         case .brush: "paintbrush.pointed"
         case .spotHealing: "bandage"
         case .cloneStamp: "seal"
@@ -127,6 +131,7 @@ enum NavigationTool: String, CaseIterable {
         case .lasso: "Lasso (L)"
         case .wand: "Magic (W) · Tab switches Wand and Object"
         case .crop: "Crop (C)"
+        case .slice: "Slice (K) · Export for Web (⌘E)"
         case .brush: "Brush (B) · Eraser (E)"
         case .spotHealing: "Spot Healing Brush (J)"
         case .cloneStamp: "Clone Stamp (S) · Option-click sets the source"
@@ -149,6 +154,16 @@ final class EditorSession {
     var document: CanvasDocument?
     var canvasFocusRequest = 0
     var showsSampleRing = true
+    /// File › Export for Web: the Export panel stands in for the Layers panel, and the slices show on the canvas.
+    var exportPanelOpen = false
+    /// The slice the Export panel shows the formats of.
+    var selectedSliceID: UUID?
+    /// A slice being drawn (no id) or moved or resized on the canvas, in document pixels.
+    var sliceDraft: (id: UUID?, rect: CGRect)?
+    /// The tool to go back to when the Export panel closes.
+    @ObservationIgnored var toolBeforeExport: NavigationTool?
+    /// The last slice change that may be folded into its undo step.
+    @ObservationIgnored var lastSliceEdit: (id: UUID, name: String, time: Date)?
     var adjustmentOriginal: LayerAdjustment?
     var adjustmentEditingID: UUID? { didSet { resumeFileRequests() } }
     /// The layer whose effects panel is open.
@@ -497,7 +512,9 @@ final class EditorSession {
             settings.opacity = parked.opacity
             brushSettings = settings
         }
+        let previous = tool
         tool = value
+        updateExportPanel(from: previous, to: value)
         if value.isBrushTool { _ = MetalBrushCoverage.shared }
         if value == .crop, cropRect == nil, let document {
             cropRatioChoice = "Free"

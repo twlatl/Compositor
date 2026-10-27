@@ -77,6 +77,13 @@ struct ContentView: View {
             if session.tool == .crop {
                 CropControls(session: session)
             }
+            if session.tool == .slice {
+                HStack(spacing: 16) {
+                    Text("Slice").font(ToolHeaderStyle.titleFont)
+                    Text("Drag to slice out a region to export").foregroundStyle(.secondary)
+                    Spacer()
+                }.padding(.horizontal, 18).toolHeaderBar()
+            }
             // No tool keeps the header, so the canvas doesn't jump.
             if session.tool == .idle {
                 HStack(spacing: 16) {
@@ -142,11 +149,15 @@ struct ContentView: View {
                     // Clamped: a width saved when the panel could go narrower is brought into range.
                     let panelWidth = min(LayersPanel.widths.upperBound, max(LayersPanel.widths.lowerBound, layersPanelWidth))
                     VStack(spacing: 0) {
-                        if showsColorPalette {
-                            ColorSwatchesPanel(session: session, width: panelWidth)
-                            Divider()
+                        if session.exportPanelOpen {
+                            ExportPanel(session: session, width: panelWidth) { Task { await projects?.exportSlices() } }
+                        } else {
+                            if showsColorPalette {
+                                ColorSwatchesPanel(session: session, width: panelWidth)
+                                Divider()
+                            }
+                            LayersPanel(session: session, width: panelWidth)
                         }
-                        LayersPanel(session: session, width: panelWidth)
                     }
                     // The divider between the panels would otherwise take all the width it's offered.
                     .frame(width: panelWidth)
@@ -320,6 +331,7 @@ struct ContentView: View {
                 : "Click a shape to select its path · Shift-click adds shapes, to combine them · Drag to move · Shift-A for Direct Selection to move its points"
         case .gradient: "Drag to draw · Drag ends to adjust · Shift 45° · 1–0 opacity · Enter apply · Escape cancel"
         case .crop: "Drag to crop · Enter apply · Escape cancel · Space to pan"
+        case .slice: "Drag to slice · Drag a slice or its handles to adjust · Shift-drag adds a slice over one · Delete removes · Space to pan"
         case .move: "Drag to move · Handles to resize · Circle to rotate · 1–0 layer opacity · Space to pan"
         case .hand: "Drag to pan · Pinch to zoom"
         case .idle: "No tool selected · Press a tool's key to pick one · Space to pan"
@@ -354,6 +366,7 @@ struct ContentView: View {
     @ViewBuilder private func toolIcon(_ tool: NavigationTool) -> some View {
         if tool == .gradient { GradientToolIcon().frame(width: 18, height: 18) }
         else if tool == .cloneStamp { CloneStampToolIcon().frame(width: 18, height: 18) }
+        else if tool == .slice { SliceToolIcon().frame(width: 18, height: 18) }
         else if tool == .lasso, session.lassoKind == .polygonal { PolygonalLassoToolIcon().frame(width: 18, height: 18) }
         else if tool == .wand, session.wandMode == .object { ObjectSelectionToolIcon().frame(width: 18, height: 18) }
         // The Shape tool's icon is the shape it draws.

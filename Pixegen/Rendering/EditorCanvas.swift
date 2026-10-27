@@ -15,6 +15,10 @@ struct EditorCanvas: NSViewRepresentable {
         _ = session.rulerOriginDrag
         _ = session.rulerZero // the layout grid is laid out from it
         _ = session.document?.guides
+        _ = session.document?.slices
+        _ = session.exportPanelOpen
+        _ = session.selectedSliceID
+        _ = session.sliceDraft?.rect
         view.synchronizeDisplay()
         view.window?.isDocumentEdited = session.isModified
     }
@@ -84,6 +88,11 @@ final class CanvasView: NSView {
     private var cropDrag: CropDrag? {
         didSet { if cropDrag == nil { releaseDragCursor() } }
     }
+    /// A slice being drawn (no id) or moved or resized: the drag, which slice, and whether it has moved yet.
+    private var sliceDrag: (drag: CropDrag, id: UUID?, start: CGPoint, moved: Bool)? {
+        didSet { if sliceDrag == nil { releaseDragCursor() } }
+    }
+    private var sliceSnap: CropSnap?
     private var guideDragging = false {
         didSet { if !guideDragging { releaseDragCursor() } }
     }
@@ -254,6 +263,47 @@ final class CanvasView: NSView {
     static let penAddCursor = makePenCursor(badge: .add)
     static let penDeleteCursor = makePenCursor(badge: .delete)
     static let penCloseCursor = makePenCursor(badge: .close)
+    /// The Slice tool's pointer: a craft knife, its blade's tip the hot spot.
+    static let knifeCursor: NSCursor = {
+        let blade = NSBezierPath()
+        blade.move(to: NSPoint(x: 2, y: 22))
+        blade.line(to: NSPoint(x: 11, y: 9.5))
+        blade.line(to: NSPoint(x: 14.5, y: 13))
+        blade.close()
+        blade.lineJoinStyle = .round
+        blade.lineWidth = 2
+        let handle = NSBezierPath()
+        handle.move(to: NSPoint(x: 12.3, y: 8.2))
+        handle.line(to: NSPoint(x: 18.6, y: 1.9))
+        handle.curve(to: NSPoint(x: 22.1, y: 5.4), controlPoint1: NSPoint(x: 21, y: 0.4), controlPoint2: NSPoint(x: 23.6, y: 3))
+        handle.line(to: NSPoint(x: 15.8, y: 11.7))
+        handle.close()
+        handle.lineJoinStyle = .round
+        handle.lineWidth = 2
+        return outlinedCursor(size: NSSize(width: 24, height: 24), hotSpot: NSPoint(x: 2, y: 22),
+                              [(blade, .white, .black), (handle, .black, .white)])
+    }()
+    /// The pointer over a slice: the arrow with a small dashed box at its lower right, for a slice that can be
+    /// selected, moved and resized.
+    static let sliceSelectCursor: NSCursor = {
+        let base = NSCursor.arrow
+        let frame = NSRect(x: base.hotSpot.x + 10.5, y: base.hotSpot.y + 13.5, width: 10, height: 10)
+        let image = NSImage(size: NSSize(width: 36, height: 36), flipped: true) { _ in
+            let box = NSBezierPath(rect: frame)
+            base.image.draw(in: NSRect(origin: .zero, size: base.image.size), from: .zero, operation: .sourceOver,
+                            fraction: 1, respectFlipped: true, hints: nil)
+            // A white box under black dashes, so the dashes show on dark and light pixels alike.
+            box.lineWidth = 3
+            NSColor.white.setStroke()
+            box.stroke()
+            box.lineWidth = 1
+            box.setLineDash([2, 2], count: 2, phase: 0)
+            NSColor.black.setStroke()
+            box.stroke()
+            return true
+        }
+        return NSCursor(image: image, hotSpot: base.hotSpot)
+    }()
     /// The arrow's corners, tip first (y down, about 12 × 19), shared by these pointers and the tool rail's icons.
     static let arrowOutline: [CGPoint] = [(0, 0), (0, 16.5), (3.9, 12.8), (6.6, 19), (9.2, 17.9), (6.6, 11.8), (11.8, 11.8)]
         .map { CGPoint(x: $0.0, y: $0.1) }
@@ -506,6 +556,8 @@ final class CanvasView: NSView {
         return (mode, NSCursor(image: image, hotSpot: hotSpot))
     })
     private var displayedCropRect: CGRect?
+    private var displayedSliceRect: CGRect?
+    private var displayedSliceRects: [CGRect] = []
     private var displayedTransformGeometry: TransformOverlayGeometry?
     private var hoverTrackingArea: NSTrackingArea?
     private static let rotationCursor: NSCursor = {
@@ -735,6 +787,14 @@ final class CanvasView: NSView {
         }
         if displayedCropRect != transformOverlay.cropViewRect {
             displayedCropRect = transformOverlay.cropViewRect
+            window?.invalidateCursorRects(for: self)
+        }
+        if displayedSliceRect != transformOverlay.selectedSliceViewRect {
+            displayedSliceRect = transformOverlay.selectedSliceViewRect
+            window?.invalidateCursorRects(for: self)
+        }
+        if displayedSliceRects != transformOverlay.sliceViewRects {
+            displayedSliceRects = transformOverlay.sliceViewRects
             window?.invalidateCursorRects(for: self)
         }
         if displayedTransformGeometry != transformOverlay.geometry {
@@ -1595,6 +1655,7 @@ final class CanvasView: NSView {
             : session.tool == .pathSelection ? (session.pathSelectionMode == .direct ? Self.directSelectionCursor : Self.pathSelectionCursor)
             : session.tool == .pen ? penCursor(at: window.map { convert($0.mouseLocationOutsideOfEventStream, from: nil) })
             : session.tool == .zoom ? (optionHeld ? Self.zoomOutCursor : Self.zoomInCursor)
+            : session.tool == .slice ? Self.knifeCursor
             : .crosshair
     }
 
@@ -1639,9 +1700,17 @@ final class CanvasView: NSView {
             return
         }
         addCursorRect(bounds, cursor: toolCursor)
-        guard session.tool == .crop, !spaceHeld else { return }
+        guard session.tool == .crop || session.tool == .slice, !spaceHeld else { return }
+        // Over a slice, the pointer that selects, moves and resizes it; Shift draws a new slice there, so keeps the knife.
+        if session.tool == .slice, !NSEvent.modifierFlags.contains(.shift) {
+            for rect in transformOverlay.sliceViewRects {
+                let visible = rect.intersection(bounds)
+                if !visible.isEmpty && !visible.isNull { addCursorRect(visible, cursor: Self.sliceSelectCursor) }
+            }
+        }
         let positions: [NSCursor.FrameResizePosition] = [.topLeft, .top, .topRight, .right, .bottomRight, .bottom, .bottomLeft, .left]
-        for region in transformOverlay.cropResizeRegions.reversed() {
+        let regions = session.tool == .slice ? transformOverlay.selectedSliceResizeRegions : transformOverlay.cropResizeRegions
+        for region in regions.reversed() {
             let rect = region.rect.intersection(bounds)
             if !rect.isEmpty && !rect.isNull {
                 addCursorRect(rect, cursor: .frameResize(position: positions[region.index], directions: [.inward, .outward]))
@@ -2043,6 +2112,8 @@ final class CanvasView: NSView {
             synchronizeDisplay()
         } else if session.tool == .crop {
             beginCropDrag(at: point)
+        } else if session.tool == .slice {
+            beginSliceDrag(at: point, event: event)
         } else if session.tool == .move {
             // Double-click live text to edit it, without switching to the Type tool first.
             if event.clickCount >= 2, beginLiveTextEdit(at: point) { return }
@@ -2195,6 +2266,13 @@ final class CanvasView: NSView {
             dragCursor?.set()
             return
         }
+        if let slicing = sliceDrag, session.tool == .slice, let document = session.document {
+            dragCursor?.set()
+            dragSlice(slicing, to: point, flags: event.modifierFlags, documentSize: document.size)
+            synchronizeDisplay()
+            dragCursor?.set()
+            return
+        }
         if let drag = cropDrag, session.tool == .crop, !session.isProjectBusy, let document = session.document {
             dragCursor?.set()
             dragCrop(drag, to: point, flags: event.modifierFlags, documentSize: document.size)
@@ -2303,6 +2381,14 @@ final class CanvasView: NSView {
         }
         session.filterEdit?.cameraRawDrag = nil
         if textBoxAnchor != nil { finishTextGesture(); return }
+        if let slicing = sliceDrag {
+            sliceDrag = nil
+            if slicing.moved { session.finishSliceDraft() }
+            // A click on no slice lets go of the selected one.
+            else if slicing.id == nil { session.selectedSliceID = nil }
+            synchronizeDisplay()
+            return
+        }
         stopMarqueeAutoscroll()
         if let drag = zoomDrag {
             zoomDrag = nil
@@ -2485,6 +2571,22 @@ final class CanvasView: NSView {
         } else if session.gradientEdit != nil, [36, 76].contains(event.keyCode) {
             gradientDrag = nil
             Task { await session.commitGradient() }
+        } else if session.tool == .slice, sliceDrag != nil, event.keyCode == 53 {
+            sliceDrag = nil
+            session.sliceDraft = nil
+        } else if session.tool == .slice, event.keyCode == 53 {
+            session.closeExportPanel()
+        } else if session.tool == .slice, let id = session.selectedSliceID, [51, 117].contains(event.keyCode),
+                  event.modifierFlags.intersection([.command, .control, .option]).isEmpty {
+            session.deleteSlice(id)
+        } else if session.tool == .slice, let slice = session.selectedSlice, [123, 124, 125, 126].contains(event.keyCode),
+                  event.modifierFlags.intersection([.command, .control, .option]).isEmpty {
+            let step: CGFloat = event.modifierFlags.contains(.shift) ? 10 : 1
+            let moved = slice.rect.offsetBy(dx: event.keyCode == 123 ? -step : event.keyCode == 124 ? step : 0,
+                                            dy: event.keyCode == 126 ? -step : event.keyCode == 125 ? step : 0)
+            if let rect = session.movedSliceRect(moved) {
+                session.updateSlice(slice.id, "Move Slice", coalescing: true) { $0.rect = rect }
+            }
         } else if session.tool == .crop, event.keyCode == 53 {
             cropDrag = nil
             session.cancelCrop()
@@ -2570,6 +2672,7 @@ final class CanvasView: NSView {
                 synchronizeDisplay()
             case "r": session.selectTool(.blur)
             case "c": session.selectTool(.crop)
+            case "k": session.selectTool(.slice)
             case "v": session.selectTool(.move)
             case "h": session.selectTool(.hand)
             case "z": session.selectTool(.zoom)
@@ -2590,6 +2693,7 @@ final class CanvasView: NSView {
         brushPointer = nil
         updateBrushCursor()
         cropDrag = nil
+        if sliceDrag != nil { sliceDrag = nil; session.sliceDraft = nil }
         gradientDrag = nil
         session.cancelShape()
         // A click-by-click pen path waits, as the polygonal lasso does; a freeform drag can't.
@@ -2843,6 +2947,55 @@ final class CanvasView: NSView {
         if CropGeometry.valid(next) { session.cropRect = next }
     }
 
+    /// The Slice tool's press: on the selected slice's handles it resizes it, on a slice it selects and moves it, and
+    /// anywhere else (or with Shift, over a slice too) it draws a new one.
+    private func beginSliceDrag(at point: CGPoint, event: NSEvent) {
+        guard session.canEditSlices, let document = session.document else { return }
+        if event.clickCount >= 2 { return }
+        let pixel = session.viewport.documentPoint(from: point, documentSize: document.size)
+        let drag: CropDrag, id: UUID?
+        if let selected = session.selectedSlice,
+           let region = transformOverlay.selectedSliceResizeRegions.first(where: { $0.rect.contains(point) }) {
+            drag = CropDrag(start: pixel, original: selected.rect, mode: .resize(region.index))
+            id = selected.id
+        } else if !event.modifierFlags.contains(.shift), let hit = session.slice(at: pixel) {
+            session.selectedSliceID = hit.id
+            drag = CropDrag(start: pixel, original: hit.rect, mode: .move)
+            id = hit.id
+        } else {
+            drag = CropDrag(start: pixel, original: CGRect(origin: pixel, size: .zero), mode: .create)
+            id = nil
+        }
+        sliceDrag = (drag, id, point, false)
+        // Other slices' edges too, so slices can be laid edge to edge.
+        let targets = session.cropSnapTargets()
+        let others = document.slices.filter { $0.id != id }.map(\.rect)
+        sliceSnap = CropSnap(xs: targets.xs + others.flatMap { [$0.minX, $0.maxX] }, ys: targets.ys + others.flatMap { [$0.minY, $0.maxY] },
+                             tolerance: Self.cropSnapDistance / max(session.viewport.pointsPerPixel, 0.0001))
+        if case .move = drag.mode { dragCursor = Self.moveCursor } else { dragCursor = .current }
+        cursorLockWindow = window
+        cursorLockWindow?.disableCursorRects()
+        dragCursor?.set()
+        synchronizeDisplay()
+    }
+
+    /// Reshapes the slice being dragged: kept inside the canvas, snapped to nearby edges unless Control is held, and
+    /// grown from its center with Option. Nothing changes until the pointer has moved a few points.
+    private func dragSlice(_ slicing: (drag: CropDrag, id: UUID?, start: CGPoint, moved: Bool), to point: CGPoint,
+                           flags: NSEvent.ModifierFlags, documentSize: CGSize) {
+        guard slicing.moved || hypot(point.x - slicing.start.x, point.y - slicing.start.y) >= 3 else { return }
+        sliceDrag?.moved = true
+        let pixel = session.viewport.documentPoint(from: point, documentSize: documentSize)
+        let symmetric = flags.contains(.option)
+        var next = slicing.drag.updated(to: pixel, ratio: nil, symmetric: symmetric)
+        if let sliceSnap, session.snappingEnabled, !flags.contains(.control) {
+            next = sliceSnap.apply(next, drag: slicing.drag, point: pixel, ratio: nil, symmetric: symmetric)
+        }
+        let rect: CGRect?
+        if case .move = slicing.drag.mode { rect = session.movedSliceRect(next) } else { rect = session.clampedSliceRect(next) }
+        if let rect { session.sliceDraft = (slicing.id, rect) }
+    }
+
     private func beginGuideDrag(at point: CGPoint) -> Bool {
         guard session.canEditGuides, let guide = session.hitGuide(at: point) else { return false }
         session.beginGuideMove(guide)
@@ -2919,7 +3072,7 @@ final class CanvasView: NSView {
     }
 
     private func releaseDragCursor() {
-        guard transformDrag == nil, cropDrag == nil, !guideDragging, dragCursor != nil else { return }
+        guard transformDrag == nil, cropDrag == nil, sliceDrag == nil, !guideDragging, dragCursor != nil else { return }
         dragCursor = nil
         cursorLockWindow?.enableCursorRects()
         cursorLockWindow?.invalidateCursorRects(for: self)

@@ -102,7 +102,7 @@ struct TextAreaTests {
         let url = root.appendingPathComponent("Area.pbox")
         try await ProjectStore.shared.save(try #require(session.projectSnapshot()), to: url)
         let loaded = try await ProjectStore.shared.load(from: url)
-        #expect(loaded.manifest.version == 22)
+        #expect(loaded.manifest.version == ProjectManifest.current)
         let saved = try #require(loaded.manifest.layers.first { $0.id == layer.id }?.text?.area)
         #expect(saved.subpaths.count == layer.liveText?.style.area?.subpaths.count)
 
