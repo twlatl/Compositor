@@ -262,10 +262,12 @@ private struct EditorToolbar: ToolbarContent {
                 .disabled(session.isImporting || session.showsBusy || session.levels != nil)
                 .modifier(NewProjectDropTarget(workspace: workspace))
         }
+        // Plain text, without the glass macOS puts behind toolbar items.
         ToolbarItem(placement: .principal) {
             Text("Pixegen").font(.system(size: 13, weight: .semibold)).foregroundStyle(.secondary)
                 .accessibilityIdentifier("appTitle")
         }
+        .sharedBackgroundVisibility(.hidden)
         ToolbarItem(placement: .primaryAction) {
             Button("Fit") { session.fit() }.help("Fit canvas in window (⌘0)")
                 .accessibilityIdentifier("fitCanvas").disabled(session.document == nil)
