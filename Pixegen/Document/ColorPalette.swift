@@ -163,6 +163,8 @@ extension EditorSession {
                         }
                     }
                 }
+            case .rimLight(let index):
+                setRimLightColor(commit ? colorPicker.color : colorPicker.original, index: index)
             case .dither(let light):
                 setDitherColor(commit ? colorPicker.color : colorPicker.original, light: light)
             case .dialog:
@@ -196,6 +198,7 @@ extension EditorSession {
         case .gradient(let target):
             if let gradient = colorPicker.gradient { setGradient(gradient, for: target) }
         case .vignette: previewVignetteColor()
+        case .rimLight: previewRimLightColor()
         case .dither: previewDitherColor()
         case .dialog: previewDialogColor()
         case .shapeFill:
@@ -430,6 +433,26 @@ extension EditorSession {
         guard settings != edit.settings else { return }
         updateFilter(settings, preview: edit.preview)
     }
+    /// Opens the app's color picker on one of Rim Light's lights.
+    func openRimLightColorPicker(index: Int) {
+        guard canEditPalette, colorPicker == nil, let edit = filterEdit, edit.kind == .rimLight, !edit.committing,
+              edit.settings.rimLight.lights.indices.contains(index) else { return }
+        let value = edit.settings.rimLight.lights[index].color
+        colorPicker = ColorPickerState(target: .rimLight(index: index),
+                                       original: PaletteColor(red: value.red, green: value.green, blue: value.blue))
+    }
+    func previewRimLightColor() {
+        guard let colorPicker, case .rimLight(let index) = colorPicker.target else { return }
+        setRimLightColor(colorPicker.color, index: index)
+    }
+    private func setRimLightColor(_ color: PaletteColor, index: Int) {
+        guard let edit = filterEdit, edit.kind == .rimLight, !edit.committing,
+              edit.settings.rimLight.lights.indices.contains(index) else { return }
+        var settings = edit.settings
+        settings.rimLight.lights[index].color = AdjustmentColor(color)
+        guard settings != edit.settings else { return }
+        updateFilter(settings, preview: edit.preview)
+    }
     func previewVignetteColor() {
         guard let colorPicker, case .vignette = colorPicker.target else { return }
         setVignetteColor(colorPicker.color)
@@ -487,6 +510,8 @@ enum ColorPickerTarget: Equatable {
     case shapeStroke
     /// A selected shape layer's own fill color.
     case shapeFill
+    /// One of Rim Light's lights.
+    case rimLight(index: Int)
     /// Dither's Two Colors: the dark one or the light one.
     case dither(light: Bool)
     case text(draftID: UUID?)
@@ -502,6 +527,7 @@ enum ColorPickerTarget: Equatable {
         case .shapeStroke: return "Color Picker (Stroke Color)"
         case .shapeFill: return "Color Picker (Fill Color)"
         case .dialogPaint(let title): return "Color Picker (\(title))"
+        case .rimLight(let index): return "Color Picker (Light \(index + 1))"
         case .dither(let light): return light ? "Color Picker (Light Color)" : "Color Picker (Dark Color)"
         case .dialog(let title): return "Color Picker (\(title))"
         }

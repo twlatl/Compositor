@@ -14,6 +14,7 @@ nonisolated enum FilterKind: String, CaseIterable, Sendable {
     case dither = "Dither"
     case scanlines = "Scanlines"
     case tonalContrast = "Tonal Contrast"
+    case rimLight = "Rim Light"
     case lensCorrection = "Lens Correction"
     case cameraRaw = "Camera Raw Filter"
     case removeBackground = "Remove Background"
@@ -29,7 +30,9 @@ nonisolated enum FilterKind: String, CaseIterable, Sendable {
     var repeatsAsLastFilter: Bool { self != .contentAwareFill && !isImageAdjustment }
     /// Filters made wholly in Core Image, which works at 16 bits as readily as at 8: a 16-bit layer runs them once, on its
     /// 16-bit pixels, rather than three times through `DeepLayer.run`.
-    var runsAtSixteenBits: Bool { self == .gaussianBlur || self == .motionBlur || self == .progressiveBlur || self == .bloomGlow }
+    var runsAtSixteenBits: Bool {
+        self == .gaussianBlur || self == .motionBlur || self == .progressiveBlur || self == .bloomGlow || self == .rimLight
+    }
     /// Filters whose output channels each depend on all three input channels (Camera Raw's color, and the ones that work
     /// from brightness), which a 16-bit layer runs the slower, channel-by-channel way (`DeepLayer.run`).
     var mixesChannels: Bool { self == .cameraRaw || self == .tonalContrast || self == .scanlines }
@@ -107,6 +110,7 @@ nonisolated struct FilterSettings: Equatable, Sendable {
     /// Lens Correction's Remove Distortion, −100–100: positive straightens barrel distortion
     /// (lines bowing outward), negative straightens pincushion (lines bowing inward).
     var distortion: Double = 0
+    var rimLight = RimLightSettings()
     var curves = CurvesSettings()
     var exposure = ExposureSettings()
     var gradientMap = GradientMapSettings()
@@ -157,6 +161,7 @@ nonisolated struct FilterSettings: Equatable, Sendable {
         result.grain = grain.normalized
         result.dither = dither.normalized
         result.scanlines = scanlines.normalized
+        result.rimLight = rimLight.normalized
         result.cameraRaw = cameraRaw.normalized
         return result
     }
@@ -294,6 +299,8 @@ nonisolated enum PixelFilter {
             image = try render(blurred.cropped(to: extent), job: job)
         case .progressiveBlur:
             image = try render(progressivelyBlurred(edges, job: job, settings: settings, extent: extent).cropped(to: extent), job: job)
+        case .rimLight:
+            image = try render(RimLighting.apply(to: CIImage(cgImage: job.image), source: job.image, settings: settings.rimLight), job: job)
         case .motionBlur:
             // Core Image's y axis points up, so its counterclockwise angle matches Photoshop's.
             let streaked = extending(edges, past: job.canvasSides, of: extent).applyingFilter("CIMotionBlur", parameters: [
@@ -700,6 +707,8 @@ extension EditorSession {
         }
         commitTransform(); cancelCrop(); cancelLasso()
         guard var layer = activeLayer, let document else { return }
+        pauseGIFForEditing(for: layer.id)
+        layer = pixelEditingLayer(for: layer)
         do {
             // An empty layer has no pixels until something is put on it; Vignette starts it with clear ones.
             let startedEmpty = layer.asset == nil
@@ -847,6 +856,7 @@ extension EditorSession {
         // A filter color still being picked goes with the panel.
         if case .gradient(.map) = colorPicker?.target { closeColorPicker(commit: false) }
         if case .vignette = colorPicker?.target { closeColorPicker(commit: false) }
+        if case .rimLight = colorPicker?.target { closeColorPicker(commit: false) }
         if case .dither = colorPicker?.target { closeColorPicker(commit: false) }
         if finishAdjustmentEditing(commit: false) { return }
         guard let edit = filterEdit, !edit.committing else { return }
@@ -861,6 +871,7 @@ extension EditorSession {
     func commitFilter() async {
         if case .gradient(.map) = colorPicker?.target { closeColorPicker(commit: true) }
         if case .vignette = colorPicker?.target { closeColorPicker(commit: true) }
+        if case .rimLight = colorPicker?.target { closeColorPicker(commit: true) }
         if case .dither = colorPicker?.target { closeColorPicker(commit: true) }
         if finishAdjustmentEditing(commit: true) { return }
         guard let edit = filterEdit, !edit.committing else { return }
@@ -877,6 +888,7 @@ extension EditorSession {
         if (edit.kind == .lensCorrection && edit.settings.distortion == 0)
             || (edit.kind == .vignette && edit.settings.vignetteAmount == 0)
             || (edit.kind == .bloomGlow && edit.settings.bloomAmount == 0)
+            || (edit.kind == .rimLight && edit.settings.rimLight.isIdentity)
             || (edit.kind == .tonalContrast && (edit.settings.tonalAmount == 0 ||
                 (edit.settings.tonalShadows == 0 && edit.settings.tonalMidtones == 0 && edit.settings.tonalHighlights == 0)))
             || (edit.kind == .exposure && edit.settings.exposure == ExposureSettings())
@@ -974,11 +986,11 @@ extension EditorSession {
             let asset = made.asset
             guard let index = document?.layers.firstIndex(where: { $0.id == edit.layerID }),
                   let current = document?.layers[index],
-                  current.asset?.image === edit.original.image || (edit.startedEmpty && current.asset == nil),
-                  current.transform == edit.transform else { return }
+                  displayedAsset(for: current)?.image === edit.original.image || (edit.startedEmpty && current.asset == nil),
+                  pixelEditTransformMatches(current, transform: edit.transform) else { return }
             // A grown layer's mask (covering the old grid) is carried onto the new one, its edge tone past the old edge.
             var mask = current.mask
-            if let grown, let owned = current.mask, owned.placement == nil,
+            if current.gifAnimation == nil, let grown, let owned = current.mask, owned.placement == nil,
                owned.asset.image.width > 1 || owned.asset.image.height > 1 {
                 var enabled = owned
                 enabled.isEnabled = true
@@ -986,11 +998,9 @@ extension EditorSession {
                                                       width: asset.image.width, height: asset.image.height) else { throw ExportError.render }
                 mask = owned.replacing(try LayerMask.asset(from: carried))
             }
+            let edited = try layerByEditingPixels(current, asset: asset, transform: made.transform ?? current.transform, mask: mask)
             beginEdit(edit.kind.rawValue)
-            document?.layers[index] = ImageLayer(id: current.id, asset: asset, name: current.name, isVisible: current.isVisible,
-                transform: made.transform ?? current.transform, parentID: current.parentID, isGroup: false,
-                opacity: current.opacity, blendMode: current.blendMode, mask: mask, maskSourceID: current.maskSourceID,
-                effects: current.effects)
+            document?.layers[index] = edited
             endEdit()
         } catch { brushError = error.localizedDescription }
     }
@@ -1021,8 +1031,8 @@ extension EditorSession {
                 return mask
             }.value
             guard let index = document?.layers.firstIndex(where: { $0.id == edit.layerID }),
-                  let layer = document?.layers[index], layer.asset?.image === edit.original.image,
-                  layer.transform == edit.transform else { return }
+                  let layer = document?.layers[index], displayedAsset(for: layer)?.image === edit.original.image,
+                  pixelEditTransformMatches(layer, transform: edit.transform) else { return }
             let asset = try LayerMask.asset(from: made)
             beginEdit(edit.kind.rawValue)
             document?.layers[index].mask = layer.mask.map { $0.replacing(asset) } ?? LayerMask(asset: asset)

@@ -79,7 +79,7 @@ struct PixegenApp: App {
                     Button("Export for Web…") { session.openExportPanel() }
                         .configuredKeyboardShortcut("e")
                         .disabled(session.document == nil || !applicationDelegate.projects.canStart || session.exportPanelOpen)
-                    // PNG, JPEG or PDF, sized and previewed; ⌥⇧⌘W, as Photoshop's Export As.
+                    // Still images or GIF timelines, sized and previewed; ⌥⇧⌘W, as Photoshop's Export As.
                     Button("Export As…") { Task { await applicationDelegate.projects.exportAs() } }
                         .configuredKeyboardShortcut("w", modifiers: [.command, .option, .shift])
                         .disabled(session.document == nil || !applicationDelegate.projects.canStart)
@@ -294,7 +294,7 @@ struct PixegenApp: App {
                     Button("Mask's Black Areas") {
                         if let id = session.activeLayerID { session.loadMaskSelection(layerID: id) }
                     }
-                        .disabled(session.activeLayer?.mask == nil || !session.canEditSelection)
+                        .disabled(session.activeLayer.flatMap { session.selectedMask(for: $0) } == nil || !session.canEditSelection)
                     Divider()
                     Button("Expand…") { session.promptSelectionAmount(.expand) }
                         .disabled(!session.canModifySelection)
@@ -422,7 +422,7 @@ struct PixegenApp: App {
                             .disabled(!session.canTransform)
                     }
                     Divider()
-                    Button(session.selectedEffect != nil ? "Delete " + session.selectedEffect!.kind.rawValue : session.isMaskSelected && session.activeLayer?.mask != nil ? "Delete Layer Mask" : session.selectedLayerIDs.count > 1 ? "Delete Layers" : "Delete Layer") {
+                    Button(session.selectedEffect != nil ? "Delete " + session.selectedEffect!.kind.rawValue : session.isMaskSelected && session.activeLayer.flatMap({ session.selectedMask(for: $0) }) != nil ? "Delete Layer Mask" : session.selectedLayerIDs.count > 1 ? "Delete Layers" : "Delete Layer") {
                         session.deleteLayerOrMask()
                     }
                         .disabled(!session.canEditLayers || session.activeLayer == nil)

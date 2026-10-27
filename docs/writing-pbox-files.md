@@ -149,3 +149,9 @@ To set up regions for File › Export for Web, add a top-level `slices` array (t
 
 - Folders, text layers, layer effects and everything else the format holds: [project-format.md](project-format.md).
 - Limits: canvases up to 30,000 pixels on a side; layers and masks count toward a memory budget that scales with the Mac.
+
+## GIF layers
+
+Use version 24 and add a `gif` object with `sourceFile: "<id>.gif"` and a zero-based `selectedFrameIndex` to an ordinary image layer. Embed the original GIF under `images/`, and keep `imageFile: "<id>.png"` as the selected frame's unmasked pixels. Save assets before replacing the manifest.
+
+Preserve existing geometry, frame order, edited frames and timing when editing a package; the layer's one mask applies to every frame, so never bake it into frame pixels. See [project-format.md](project-format.md) (version 24) for the fields and limits.

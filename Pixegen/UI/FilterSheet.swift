@@ -107,6 +107,8 @@ struct FilterSheet: View {
                     .help("The blur where the line ends, and past it")
                 Toggle("Invert", isOn: flag(\.progressiveInverted))
                     .help("Swap From and To: blur the start and sharpen toward the end")
+            case .rimLight:
+                rimLightControls
             case .motionBlur:
                 control("Angle", \.angle, range: -90...90, unit: "°", decimals: 0, logarithmic: false)
                 control("Distance", \.distance, range: 1...2000, unit: "px", decimals: 0, logarithmic: true)
@@ -174,6 +176,10 @@ struct FilterSheet: View {
                     ProgressView().controlSize(.small)
                     Text(edit?.committing == true ? "Applying…" : "Working…")
                         .font(.callout).foregroundStyle(.secondary)
+                } else if let edit, edit.kind == .rimLight, edit.preparing, !RimLighting.hasSubject(for: edit.hdrPreviewSource ?? edit.previewSource) {
+                    // Only the first preview, which finds the subject: relighting it afterwards is quick.
+                    ProgressView().controlSize(.small)
+                    Text("Finding the subject…").font(.callout).foregroundStyle(.secondary)
                 }
                 Button("OK") { Task { await session.commitFilter() } }
                     .configuredNativeShortcut(.return).buttonStyle(.borderedProminent)
@@ -300,6 +306,44 @@ struct FilterSheet: View {
 
     private func swatch(_ color: AdjustmentColor, title: String, open: @escaping () -> Void) -> some View {
         ColorWell(title: title, color: PaletteColor(color), session: session, open: open)
+    }
+
+    /// Rim Light: Glow, then each light's color, angle, strength, width and choke, with room for up to three.
+    @ViewBuilder private var rimLightControls: some View {
+        let rim = settings.rimLight
+        control("Glow", \.rimLight.glow, range: 0...100, unit: "%", decimals: 0, logarithmic: false)
+            .help("Let the lights glow in the air around the subject, blending them into the background")
+        ForEach(Array(rim.lights.enumerated()), id: \.element.id) { index, light in
+            Divider()
+            HStack(spacing: 8) {
+                Text("Light \(index + 1)").font(.headline)
+                Spacer()
+                swatch(light.color, title: "Light \(index + 1) color") { session.openRimLightColorPicker(index: index) }
+                if rim.lights.count > 1 {
+                    Button {
+                        // A color still being picked belongs to the lights as they were numbered.
+                        if case .rimLight = session.colorPicker?.target { session.closeColorPicker(commit: true) }
+                        update { $0.rimLight.lights.removeAll { $0.id == light.id } }
+                    } label: { Image(systemName: "minus.circle") }
+                    .buttonStyle(.borderless)
+                    .help("Remove this light")
+                }
+            }
+            control("Angle", \.rimLight[light: light.id].angle, range: -180...180, unit: "°", decimals: 0, logarithmic: false)
+                .help("Where the light comes from, behind the subject: 0° from the right, 90° from above")
+            control("Strength", \.rimLight[light: light.id].strength, range: 0...100, unit: "%", decimals: 0, logarithmic: false)
+            control("Width", \.rimLight[light: light.id].width, range: 0...100, unit: "%", decimals: 0, logarithmic: false)
+                .help("How far the light wraps around the subject's edges")
+            control("Choke", \.rimLight[light: light.id].choke, range: 0...100, unit: "%", decimals: 0, logarithmic: false)
+                .help("How the light ends on the inside: low feathers it off softly from the edge, high holds it bright and ends it crisply")
+        }
+        if rim.lights.count < RimLightSettings.maximumLights {
+            Button("Add Light") {
+                if case .rimLight = session.colorPicker?.target { session.closeColorPicker(commit: true) }
+                update { $0.rimLight.lights.append($0.rimLight.nextLight) }
+            }
+            .help("Light the subject from another side as well")
+        }
     }
 
     private func flag(_ key: WritableKeyPath<FilterSettings, Bool>) -> Binding<Bool> {
