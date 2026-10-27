@@ -39,10 +39,11 @@ nonisolated final class MetalRimLight: @unchecked Sendable {
 
     /// The light `light` adds over `image`, alone (its alpha clear, to be added): `coverage` where the subject is,
     /// `outline` its hard outline blurred `reach` pixels, `fine` and `coarse` the photo's gray lightly and more blurred,
-    /// `backdrop` how far each pixel differs from the backdrop behind it, and `near` the outline blurred wide, which
-    /// says how close to the subject a pixel is and which way it lies.
+    /// `backdrop` how far each pixel differs from the backdrop behind it, `busy` how much that backdrop varies there
+    /// (its colors' variance), and `near` the outline blurred wide, which says how close to the subject a pixel is and
+    /// which way it lies.
     static func light(_ image: CIImage, coverage: CIImage, outline: CIImage, fine: CIImage, coarse: CIImage, backdrop: CIImage,
-                      near: CIImage, width: CGFloat, reach: CGFloat, side: CGFloat, light: RimLight) throws -> CIImage {
+                      busy: CIImage, near: CIImage, width: CGFloat, reach: CGFloat, side: CGFloat, light: RimLight) throws -> CIImage {
         guard shared != nil else { throw ExportError.render }
         var parameters = Parameters()
         parameters.width = Float(width)
@@ -57,7 +58,7 @@ nonisolated final class MetalRimLight: @unchecked Sendable {
         parameters.color = SIMD4(linear(light.color.red) * strength, linear(light.color.green) * strength,
                                  linear(light.color.blue) * strength, 0)
         return try RimLightKernel.apply(withExtent: image.extent,
-                                        inputs: [image, coverage, outline, fine, coarse, backdrop, near],
+                                        inputs: [image, coverage, outline, fine, coarse, backdrop, near, busy],
                                         arguments: ["parameters": withUnsafeBytes(of: parameters) { Data($0) }])
     }
 
@@ -127,14 +128,15 @@ kernel void rimLight(texture2d<float, access::read> image [[texture(0)]],
                      texture2d<float, access::read> coarse [[texture(4)]],
                      texture2d<float, access::read> backdrop [[texture(5)]],
                      texture2d<float, access::read> near [[texture(6)]],
-                     texture2d<float, access::write> result [[texture(7)]],
+                     texture2d<float, access::read> busy [[texture(7)]],
+                     texture2d<float, access::write> result [[texture(8)]],
                      constant Parameters &p [[buffer(0)]],
                      uint2 pixel [[thread_position_in_grid]]) {
     if (pixel.x >= result.get_width() || pixel.y >= result.get_height()) return;
     int2 here = int2(pixel);
     int2 atImage = here + offsetOf(p, 0), atCoverage = here + offsetOf(p, 1), atOutline = here + offsetOf(p, 2);
     int2 atFine = here + offsetOf(p, 3), atCoarse = here + offsetOf(p, 4), atBackdrop = here + offsetOf(p, 5);
-    int2 atNear = here + offsetOf(p, 6);
+    int2 atNear = here + offsetOf(p, 6), atBusy = here + offsetOf(p, 7);
     float covered = readAt(coverage, atCoverage), closeness = readAt(near, atNear);
     if (covered <= 0.002 && closeness <= 0.002) { result.write(float4(0), pixel); return; }
     float4 color = texel(image, atImage);
@@ -166,11 +168,13 @@ kernel void rimLight(texture2d<float, access::read> image [[texture(0)]],
     float inside = smoothstep(-1.5, 1.5, depth);
     float3 added = tint * lit * reaches * catches * covered * inside;
 
-    // Past the edge, loose strands: whatever near the subject stands out from the backdrop behind it there, which a
-    // smooth backdrop's grain doesn't. Thin, they're all edge, lit by how they face the light from the subject.
-    float3 apart = texel(backdrop, atBackdrop).rgb;
+    // Past the edge, loose strands: whatever near the subject stands out from the backdrop behind it there by more than
+    // that backdrop varies on its own, which a smooth backdrop's grain doesn't and a busy one's rocks or crowd don't
+    // either. Thin, they're all edge, lit by how they face the light from the subject.
+    float3 apart = texel(backdrop, atBackdrop).rgb, spread = texel(busy, atBusy).rgb;
     float differs = all(isfinite(apart)) ? max(apart.r, max(apart.g, apart.b)) : 0.0;
-    float strand = clamp((differs - 0.03) / 0.1, 0.0, 1.0) * smoothstep(0.0, 0.1, closeness) * (1.0 - inside);
+    float varies = all(isfinite(spread)) ? sqrt(max(0.0, max(spread.r, max(spread.g, spread.b)))) : 1.0;
+    float strand = clamp((differs - 0.03 - 2.5 * varies) / 0.1, 0.0, 1.0) * smoothstep(0.0, 0.1, closeness) * (1.0 - inside);
     if (strand > 0) {
         float2 away = inwardsIn(near, atNear);
         float faces = pow(max(0.0, dot(normalize(float3(-away * 2.75, 1.0)), p.direction.xyz)), 1.6);
@@ -198,7 +202,7 @@ kernel void rimCombine(texture2d<float, access::read> image [[texture(0)]],
 """
 }
 
-/// Runs `MetalRimLight` inside a Core Image graph: its lighting, with seven inputs, or laying it over the photo, with
+/// Runs `MetalRimLight` inside a Core Image graph: its lighting, with eight inputs, or laying it over the photo, with
 /// two. Inputs are read a texel to either side, for the normals.
 final class RimLightKernel: CIImageProcessorKernel {
     override class var outputFormat: CIFormat { .RGBAf }
@@ -210,7 +214,7 @@ final class RimLightKernel: CIImageProcessorKernel {
 
     override class func process(with inputs: [CIImageProcessorInput]?, arguments: [String: Any]?,
                                 output: CIImageProcessorOutput) throws {
-        guard let inputs, inputs.count == 7 || inputs.count == 2, let destination = output.metalTexture,
+        guard let inputs, inputs.count == 8 || inputs.count == 2, let destination = output.metalTexture,
               let command = output.metalCommandBuffer, let gpu = MetalRimLight.shared,
               let data = arguments?["parameters"] as? Data, data.count >= MemoryLayout<MetalRimLight.Parameters>.size,
               let encoder = command.makeComputeCommandEncoder() else { throw ExportError.render }
@@ -225,7 +229,7 @@ final class RimLightKernel: CIImageProcessorKernel {
                               SIMD4(offsets[4], offsets[5], offsets[6], offsets[7]),
                               SIMD4(offsets[8], offsets[9], offsets[10], offsets[11]),
                               SIMD4(offsets[12], offsets[13], offsets[14], offsets[15]))
-        encoder.setComputePipelineState(inputs.count == 7 ? gpu.pipeline : gpu.combine)
+        encoder.setComputePipelineState(inputs.count == 8 ? gpu.pipeline : gpu.combine)
         for (index, input) in inputs.enumerated() {
             guard let texture = input.metalTexture else { encoder.endEncoding(); throw ExportError.render }
             encoder.setTexture(texture, index: index)

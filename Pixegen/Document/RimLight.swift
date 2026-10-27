@@ -135,6 +135,13 @@ nonisolated enum RimLighting {
         let behind = scaled(blurred(open, spread), 1, bias: 0.001)
             .applyingFilter("CIDivideBlendMode", parameters: [kCIInputBackgroundImageKey: weighted])
         let backdrop = image.applyingFilter("CIDifferenceBlendMode", parameters: [kCIInputBackgroundImageKey: behind])
+        // How busy that backdrop is there, its colors' spread around their average: on rocks or a crowd everything
+        // differs from the average, so a strand has to stand out further than that to count.
+        let squares = image.applyingFilter("CIMultiplyCompositing", parameters: [kCIInputBackgroundImageKey: image])
+        let meanSquares = scaled(blurred(open, spread), 1, bias: 0.001).applyingFilter("CIDivideBlendMode", parameters: [
+            kCIInputBackgroundImageKey: blurred(squares.applyingFilter("CIMultiplyCompositing", parameters: [kCIInputBackgroundImageKey: open]), spread)])
+        let busy = meanSquares.applyingFilter("CIDifferenceBlendMode", parameters: [
+            kCIInputBackgroundImageKey: behind.applyingFilter("CIMultiplyCompositing", parameters: [kCIInputBackgroundImageKey: behind])])
         let near = blurred(outline, side * 0.015)
         // Each light on its own, reaching in as far as its Width, and added up.
         var rims: CIImage?
@@ -143,7 +150,7 @@ nonisolated enum RimLighting {
             // The outline blurred far enough to tell, at each pixel, how far in from the edge it is, to twice Width.
             let reach = max(1, width / 1.5)
             let rim = try MetalRimLight.light(image, coverage: coverage, outline: blurred(outline, reach), fine: fine, coarse: coarse,
-                                              backdrop: backdrop, near: near, width: width, reach: reach, side: side, light: light)
+                                              backdrop: backdrop, busy: busy, near: near, width: width, reach: reach, side: side, light: light)
             rims = rims.map { rim.applyingFilter("CIAdditionCompositing", parameters: [kCIInputBackgroundImageKey: $0]) } ?? rim
         }
         guard var light = rims else { return image }
