@@ -24,7 +24,7 @@ extension UTType {
 
 nonisolated struct ProjectManifest: Codable, Sendable {
     /// The format version new saves write.
-    static let current = 20
+    static let current = 21
     /// Every version `load` accepts. The package-header check, the manifest check and the error
     /// message all read this, so they cannot drift apart when `current` is bumped.
     static let supported = 1...ProjectManifest.current
@@ -243,10 +243,11 @@ actor ProjectStore {
                       !shape.needsVersion19 || manifest.version >= 19 else { throw ProjectError.invalid }
             }
             if let text = layer.text {
-                // Per-letter colors arrived in version 10, per-letter faces in version 11.
+                // Per-letter colors arrived in version 10, per-letter faces in version 11, text on a path in 21.
                 guard text.isValid,
                       text.colorRuns == nil || manifest.version >= 10,
                       text.fontRuns == nil || manifest.version >= 11,
+                      text.path == nil || manifest.version >= 21,
                       layer.imageFile != nil, layer.isGroup != true, layer.adjustment == nil else { throw ProjectError.invalid }
             }
             if let adjustment = layer.adjustment {

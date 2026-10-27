@@ -80,6 +80,10 @@ struct TypeControls: View {
                         .help("Line height, baseline to baseline. Empty or 0 is Auto: 120% of the font size.")
                 }
             }.scrollIndicators(.never)
+            if session.currentTextStyle.path != nil {
+                Button("Flip") { session.flipTextPath() }
+                    .help("Move the text to the other side of its path, running the other way")
+            }
             if session.textDraft != nil {
                 Button("Cancel") { session.cancelText() }
                 Button("Done") { _ = session.finishText() }
