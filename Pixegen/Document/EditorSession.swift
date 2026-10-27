@@ -286,6 +286,8 @@ final class EditorSession {
     var shapeSmoothing = false
     /// A Line shape's thickness (its weight) in document pixels.
     var shapeLineWidth: Double = 4
+    /// What Align lines the selected layers up against.
+    var alignmentTarget = AlignmentTarget.selection
     var shapeMode = ShapeMode.shape { didSet { if shapeMode != .path { workPath = nil } } }
     /// Shapes fill with the foreground color unless the fill is turned off.
     var shapeFilled = true

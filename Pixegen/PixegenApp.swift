@@ -379,6 +379,15 @@ struct PixegenApp: App {
                                     .assignableShortcut(operation.rawValue)
                             }
                         }.disabled(!session.canApplyShapeOperation)
+                        Menu("Align") {
+                            ForEach(LayerAlignment.aligns, id: \.self) { alignment in
+                                Button(alignment.rawValue) { session.align(alignment) }.disabled(!session.canAlign(alignment))
+                            }
+                            Divider()
+                            ForEach(LayerAlignment.distributes + LayerAlignment.spacings, id: \.self) { alignment in
+                                Button(alignment.rawValue) { session.align(alignment) }.disabled(!session.canAlign(alignment))
+                            }
+                        }.disabled(session.alignmentItems.isEmpty)
                         Divider()
                         Button("Flip Layer Horizontal") { session.flipLayers(horizontally: true) }
                             .disabled(!session.canTransform)
