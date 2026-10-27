@@ -363,8 +363,8 @@ final class ProjectController {
     func close(_ window: NSWindow) async {
         if let workspace, let tab = workspace.tabs.first(where: { $0.controller === self }) {
             await workspace.close(tab.id)
-            // Closed: its window too, should nothing on screen have closed it already.
-            if !workspace.tabs.contains(where: { $0 === tab }) { window.close() }
+            // A project window closes with its last tab; any other window, with its project.
+            if !(window is ProjectWindow), !workspace.tabs.contains(where: { $0 === tab }) { window.close() }
             return
         }
         guard begin() else { return }

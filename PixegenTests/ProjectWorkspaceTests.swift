@@ -263,13 +263,32 @@ import Testing
     }
 }
 
-/// Stands in for the windows: what was put on screen, and beside what, and what was closed.
+/// Stands in for the windows: what was put on screen, and beside what, and what was closed; and the windows' tab groups.
 @MainActor
-private final class RecordingPresenter: ProjectWindowPresenting {
+final class RecordingPresenter: ProjectWindowPresenting {
     var shown: [(tab: ProjectTab, neighbor: ProjectTab?)] = []
     var closed: [ProjectTab] = []
-    func show(_ tab: ProjectTab, beside neighbor: ProjectTab?) { shown.append((tab, neighbor)) }
-    func close(_ tab: ProjectTab) { closed.append(tab) }
+    var groups: [[ProjectTab]] = []
+    func show(_ tab: ProjectTab, beside neighbor: ProjectTab?) {
+        shown.append((tab, neighbor))
+        guard !groups.contains(where: { $0.contains { $0 === tab } }) else { return }
+        if let neighbor, let index = groups.firstIndex(where: { $0.contains { $0 === neighbor } }) {
+            groups[index].append(tab)
+        } else { groups.append([tab]) }
+    }
+    func close(_ tab: ProjectTab) {
+        closed.append(tab)
+        groups = groups.map { $0.filter { $0 !== tab } }.filter { !$0.isEmpty }
+    }
+    func group(of tab: ProjectTab) -> [ProjectTab] { groups.first { $0.contains { $0 === tab } } ?? [tab] }
+    func move(_ tab: ProjectTab, to index: Int) {
+        guard let g = groups.firstIndex(where: { $0.contains { $0 === tab } }) else { return }
+        groups[g].removeAll { $0 === tab }
+        groups[g].insert(tab, at: min(index, groups[g].count))
+    }
+    func moveToNewWindow(_ tab: ProjectTab) {
+        groups = groups.map { $0.filter { $0 !== tab } }.filter { !$0.isEmpty } + [[tab]]
+    }
     func hasWindow(_ tab: ProjectTab) -> Bool {
         shown.contains { $0.tab === tab } && !closed.contains { $0 === tab }
     }

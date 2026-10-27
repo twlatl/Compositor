@@ -89,7 +89,13 @@ struct ContentView: View {
 
     @ViewBuilder private var editorStack: some View {
         VStack(spacing: 0) {
-            if !session.canvasOnly { toolHeaders }
+            if !session.canvasOnly {
+                toolHeaders
+                if let workspace = applicationDelegate?.workspace, let tab {
+                    DocumentTabBar(workspace: workspace, tab: tab)
+                    Divider()
+                }
+            }
             HStack(spacing: 0) {
                 if !session.canvasOnly {
                     toolRail
@@ -194,37 +200,6 @@ struct ContentView: View {
         // The toolbar itself is hidden and shown by the window (see `toggleCanvasOnly`), which lays its buttons out
         // again properly; hidden here instead, it came back over the window buttons.
         .ignoresSafeArea(.container, edges: session.canvasOnly ? .top : [])
-        // The window's title, which is also what its tab shows.
-        .navigationTitle(tab?.title ?? session.projectURL?.deletingPathExtension().lastPathComponent ?? "Untitled")
-        .toolbar {
-            ToolbarItem(placement: .navigation) {
-                Button { requestNewCanvas() } label: { Label("New canvas", systemImage: "plus") }
-                    .help("New canvas (⌘N)").accessibilityIdentifier("newCanvasToolbar")
-                    .disabled(session.isImporting || session.showsBusy || session.levels != nil)
-                    .modifier(NewProjectDropTarget(workspace: applicationDelegate?.workspace))
-            }
-            ToolbarItem(placement: .primaryAction) {
-                Button("Fit") { session.fit() }.help("Fit canvas in window (⌘0)")
-                    .accessibilityIdentifier("fitCanvas").disabled(session.document == nil)
-                    .padding(.horizontal, 4)
-            }
-            ToolbarItem(placement: .primaryAction) {
-                Button("100%") { session.zoom(to: 1) }.help("Actual pixels (⌘1)")
-                    .accessibilityIdentifier("actualPixels").disabled(session.document == nil)
-                    .padding(.horizontal, 4)
-            }
-            ToolbarItem(placement: .primaryAction) {
-                HStack(spacing: 0) {
-                    Button { session.zoomKeyboard(by: 1) } label: {
-                        Image(systemName: "plus.magnifyingglass")
-                    }.help("Zoom in (⌘+)").disabled(session.document == nil)
-                    Button { session.zoomKeyboard(by: -1) } label: {
-                        Image(systemName: "minus.magnifyingglass")
-                    }.help("Zoom out (⌘−)").disabled(session.document == nil)
-                }
-                .padding(.horizontal, 4)
-            }
-        }
     }
 
     var body: some View {
@@ -306,10 +281,6 @@ struct ContentView: View {
             set: { if !$0 { session.cropError = nil } })) {
                 Button("OK") { session.cropError = nil }
             } message: { Text(session.cropError ?? "") }
-    }
-    private func requestNewCanvas() {
-        if let projects { Task { await projects.newCanvas() } }
-        else { session.clearProject() }
     }
     /// The status bar's hint for the Shape tool, which depends on the shape and on what it makes.
     private var shapeHint: String {

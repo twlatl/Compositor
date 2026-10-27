@@ -4,9 +4,11 @@ import SwiftUI
 /// Intercepts only close approval and forwards SwiftUI's other window callbacks.
 struct ProjectWindowBridge: NSViewRepresentable {
     let controller: ProjectController
+    /// What the close button does; closing the controller's project when not given.
+    var onClose: ((NSWindow) async -> Void)? = nil
     func makeNSView(context: Context) -> ProjectWindowView { ProjectWindowView(controller: controller) }
     func updateNSView(_ view: ProjectWindowView, context: Context) {
-        view.update(controller)
+        view.update(controller, onClose: onClose)
         view.window?.representedURL = controller.session.projectURL
         view.window?.isDocumentEdited = controller.session.isModified
     }
@@ -21,9 +23,10 @@ final class ProjectWindowView: NSView {
         proxy.controller = controller
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
-    func update(_ controller: ProjectController) {
+    func update(_ controller: ProjectController, onClose: ((NSWindow) async -> Void)?) {
         self.controller = controller
         proxy.controller = controller
+        proxy.onClose = onClose
         controller.window = window
     }
     override func viewDidMoveToWindow() {
@@ -42,7 +45,9 @@ final class ProjectWindowView: NSView {
 private final class ProjectWindowDelegate: NSObject, NSWindowDelegate {
     weak var previous: NSWindowDelegate?
     weak var controller: ProjectController?
+    var onClose: ((NSWindow) async -> Void)?
     func windowShouldClose(_ sender: NSWindow) -> Bool {
+        if let onClose { Task { await onClose(sender) }; return false }
         guard let controller else { return true }
         Task { await controller.close(sender) }
         return false
