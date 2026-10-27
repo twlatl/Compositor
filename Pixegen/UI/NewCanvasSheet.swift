@@ -41,6 +41,27 @@ nonisolated enum NewCanvasUnit: String, CaseIterable, Sendable {
     }
 }
 
+/// The units New Canvas's resolution can be typed in. The document keeps it in pixels per inch.
+nonisolated enum ResolutionUnit: String, CaseIterable, Sendable {
+    case perInch = "pixels/inch", perCentimeter = "pixels/cm"
+
+    private var perInch: Double { self == .perInch ? 1 : 2.54 }
+    /// Pixels per inch for a typed resolution, or nil when it isn't one a document can have (1 to 9,600 per inch).
+    func pixelsPerInch(_ text: String) -> Double? {
+        guard let value = Double(text.trimmingCharacters(in: .whitespaces).replacingOccurrences(of: ",", with: ".")),
+              value.isFinite, value > 0 else { return nil }
+        let resolution = value * perInch
+        return (1...9600).contains(resolution) ? resolution : nil
+    }
+    /// The resolutions a document can have, written for a message, rounded inward.
+    var limits: String { self == .perInch ? "1 to 9,600 pixels/inch" : "0.4 to 3,779 pixels/cm" }
+    /// A resolution written in this unit, to two decimals at most.
+    func text(_ pixelsPerInch: Double) -> String {
+        (pixelsPerInch / perInch).formatted(.number.precision(.fractionLength(0...2)).grouping(.never)
+            .locale(Locale(identifier: "en_US_POSIX")))
+    }
+}
+
 /// What a new canvas starts as: see-through, or a Background layer of white or black.
 nonisolated enum NewCanvasBackground: String, CaseIterable, Sendable {
     case transparent, white, black
@@ -64,17 +85,35 @@ struct NewCanvasSheet: View {
     /// Always starting from the common case: remembered print settings turned the default 1920 × 1080 into inches,
     /// a canvas far too big to make.
     @State private var unit = NewCanvasUnit.pixels
+    /// In pixels per inch, whichever unit it's shown in.
     @State private var resolution = 72.0
+    @State private var resolutionText = "72"
+    @State private var resolutionUnit = ResolutionUnit.perInch
     @State private var background = NewCanvasBackground.transparent
     @State private var suggestedClipboardSize = false
     @FocusState private var focusedField: Field?
     private enum Field { case width, height }
     private var pixelWidth: Int? { unit.pixels(width, resolution: resolution) }
     private var pixelHeight: Int? { unit.pixels(height, resolution: resolution) }
-    private var valid: Bool { pixelWidth != nil && pixelHeight != nil }
+    private var resolutionIsValid: Bool { resolutionUnit.pixelsPerInch(resolutionText) != nil }
+    private var valid: Bool { pixelWidth != nil && pixelHeight != nil && resolutionIsValid }
     private var resolutionHelp: String {
-        let size = unit != .pixels ? pixelWidth.flatMap { w in pixelHeight.map { h in " · \(Int(resolution)) DPI: \(w) × \(h) pixels" } } : nil
-        return "Resolution: 72 for screens, 300 for print. Click to switch." + (size ?? "")
+        let size = unit != .pixels ? pixelWidth.flatMap { w in pixelHeight.map { h in " At this resolution, \(w) × \(h) pixels." } } : nil
+        return "72 pixels/inch for screens, 300 for print. In pixels the resolution is only stored with the file." + (size ?? "")
+    }
+    /// The resolution as typed: kept as pixels per inch whenever it's one a document can have.
+    private var resolutionField: Binding<String> {
+        Binding(get: { resolutionText }, set: { text in
+            resolutionText = text
+            if let value = resolutionUnit.pixelsPerInch(text) { resolution = value }
+        })
+    }
+    /// The same resolution written in another unit: 72 pixels/inch is 28.35 pixels/cm.
+    private var resolutionUnitChoice: Binding<ResolutionUnit> {
+        Binding(get: { resolutionUnit }, set: { unit in
+            resolutionUnit = unit
+            resolutionText = unit.text(resolution)
+        })
     }
     /// Shows the sizes in another unit, the same canvas written differently.
     private func switchUnit(to new: NewCanvasUnit) {
@@ -121,10 +160,31 @@ struct NewCanvasSheet: View {
                     .accessibilityLabel("Preset sizes")
                 }
             }
-            HStack(spacing: 16) {
+            HStack(alignment: .bottom, spacing: 16) {
                 dimension("Width", text: $width, field: .width)
-                Image(systemName: "multiply").foregroundStyle(.tertiary).padding(.top, 20)
+                Image(systemName: "multiply").foregroundStyle(.tertiary).padding(.bottom, 14)
                 dimension("Height", text: $height, field: .height)
+                Button { swap(&width, &height) } label: {
+                    Image(systemName: "arrow.left.arrow.right").frame(width: 24, height: 24).contentShape(Rectangle())
+                }
+                .buttonStyle(.plain).foregroundStyle(.secondary).padding(.bottom, 10)
+                .help("Swap width and height").accessibilityLabel("Swap width and height")
+                .accessibilityIdentifier("swapDimensions")
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Resolution").font(.callout.weight(.medium))
+                    HStack(spacing: 8) {
+                        TextField("Resolution", text: resolutionField).textFieldStyle(.plain)
+                            .frame(width: 56)
+                            .accessibilityIdentifier("resolutionInput")
+                            .padding(12).background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 7))
+                        Picker("Resolution unit", selection: resolutionUnitChoice) {
+                            ForEach(ResolutionUnit.allCases, id: \.self) { Text($0.rawValue).tag($0) }
+                        }
+                        .pickerStyle(.menu).labelsHidden().fixedSize()
+                        .accessibilityIdentifier("resolutionUnit")
+                    }
+                }
+                .help(resolutionHelp)
             }
             // The settings are pills, each changed the same way: click to step to the next choice.
             HStack(spacing: 4) {
@@ -137,18 +197,14 @@ struct NewCanvasSheet: View {
                     switchUnit(to: unit.next)
                 }
                 .accessibilityIdentifier("canvasUnit")
-                Text("·")
-                // In print units the pixels follow the DPI; in pixels, the DPI is just stored with the file. The pixel
-                // size it makes is in the pill's hover text, out of the way until it's wanted.
-                CyclePill("\(Int(resolution)) DPI", help: resolutionHelp) {
-                    resolution = resolution == 300 ? 72 : 300
-                }
-                .accessibilityIdentifier("canvasResolution")
             }
             .font(.callout).foregroundStyle(.secondary)
-            if !valid {
+            if !resolutionIsValid {
+                Text("Enter a resolution from \(resolutionUnit.limits).")
+                    .font(.callout).foregroundStyle(.orange)
+            } else if !valid {
                 Text(unit == .pixels ? "Enter whole numbers from 1 to \(DocumentLimits.maxSide.formatted()) pixels."
-                                     : "Enter a size up to \(DocumentLimits.maxSide.formatted()) pixels at this DPI.")
+                                     : "Enter a size up to \(DocumentLimits.maxSide.formatted()) pixels at this resolution.")
                     .font(.callout).foregroundStyle(.orange)
             }
             HStack(spacing: 10) {
@@ -164,7 +220,7 @@ struct NewCanvasSheet: View {
                 .disabled(!valid).accessibilityIdentifier("createCanvas")
             }
         }
-        .padding(28).frame(maxWidth: 500)
+        .padding(28).frame(maxWidth: 640)
         .disabled(session.isImporting || session.showsBusy)
         .onAppear {
             if !suggestedClipboardSize {
@@ -240,7 +296,7 @@ struct CanvasPreset: Identifiable, Hashable {
     let width: Int
     let height: Int
     var id: String { title }
-    /// Resolutions, Apple screens, then social formats; the menu divides them.
+    /// Resolutions, Apple screens, social formats, then app icons; the menu divides them.
     static let groups: [[CanvasPreset]] = [
         [
             CanvasPreset(title: "4K", width: 3840, height: 2160),
@@ -259,6 +315,11 @@ struct CanvasPreset: Identifiable, Hashable {
             CanvasPreset(title: "Instagram Portrait", width: 1080, height: 1350),
             CanvasPreset(title: "Instagram Story", width: 1080, height: 1920),
             CanvasPreset(title: "YouTube Thumb", width: 1080, height: 608),
+        ],
+        [
+            CanvasPreset(title: "Mac Icon 1024px", width: 1024, height: 1024),
+            CanvasPreset(title: "Mac Icon 512px", width: 512, height: 512),
+            CanvasPreset(title: "Mac Icon 256px", width: 256, height: 256),
         ],
     ]
     static let all = groups.flatMap { $0 }
