@@ -239,7 +239,7 @@ struct TextOnPathTests {
         let url = root.appendingPathComponent("Path.pbox")
         try await ProjectStore.shared.save(try #require(session.projectSnapshot()), to: url)
         let loaded = try await ProjectStore.shared.load(from: url)
-        #expect(loaded.manifest.version == 21)
+        #expect(loaded.manifest.version == ProjectManifest.current)
         let saved = try #require(loaded.manifest.layers.first { $0.id == layer.id }?.text)
         // Knots are saved to a millionth, so they come back close rather than equal.
         let path = try #require(saved.path), original = try #require(layer.liveText?.style.path)

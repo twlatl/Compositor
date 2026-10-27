@@ -317,6 +317,26 @@ final class CanvasView: NSView {
         }
         return NSCursor(image: image, hotSpot: NSPoint(x: 10, y: 18))
     }()
+    /// The Type tool inside a closed shape: an I-beam in a dotted circle, as Photoshop's area type pointer. The hot
+    /// spot is the I-beam's middle.
+    static let typeInShapeCursor: NSCursor = {
+        let image = NSImage(size: NSSize(width: 24, height: 24), flipped: true) { _ in
+            let beam = NSBezierPath()
+            beam.move(to: NSPoint(x: 9, y: 5)); beam.line(to: NSPoint(x: 15, y: 5))
+            beam.move(to: NSPoint(x: 12, y: 5)); beam.line(to: NSPoint(x: 12, y: 19))
+            beam.move(to: NSPoint(x: 9, y: 19)); beam.line(to: NSPoint(x: 15, y: 19))
+            beam.lineCapStyle = .round
+            let ring = NSBezierPath(ovalIn: NSRect(x: 2.5, y: 2.5, width: 19, height: 19))
+            ring.setLineDash([2, 2], count: 2, phase: 0)
+            for (color, width) in [(NSColor.white, 3.0), (NSColor.black, 1.2)] {
+                color.setStroke()
+                beam.lineWidth = width + 0.3; beam.stroke()
+                ring.lineWidth = width; ring.stroke()
+            }
+            return true
+        }
+        return NSCursor(image: image, hotSpot: NSPoint(x: 12, y: 12))
+    }()
     /// Arrow with a small dashed box: dragging here moves the selection outline.
     static let moveSelectionCursor = selectionBadged(.arrow, boxAt: CGPoint(x: 9.5, y: 13.5))
     /// Pointing hand with a dashed box: Cmd-click a mask thumbnail to load it as a selection.
@@ -1583,7 +1603,11 @@ final class CanvasView: NSView {
         guard let point, let document = session.document, session.textDraft == nil else { return .iBeam }
         let pixel = session.viewport.documentPoint(from: point, documentSize: document.size)
         let tolerance = Self.textPathReach / max(session.viewport.pointsPerPixel, 0.0001)
-        return session.textPathTarget(at: pixel, tolerance: tolerance) == nil ? .iBeam : Self.typeOnPathCursor
+        if session.textPathTarget(at: pixel, tolerance: tolerance) != nil { return Self.typeOnPathCursor }
+        // Inside a shape, unless there's text there already to click into.
+        let visible = document.effectiveVisibleIDs
+        let onText = document.layers.contains { visible.contains($0.id) && $0.liveText != nil && $0.transform.contains(pixel) }
+        return !onText && session.textAreaTarget(at: pixel) != nil ? Self.typeInShapeCursor : .iBeam
     }
 
     /// The Pen tool's cursor at a view point: its badge says what a click there would do.

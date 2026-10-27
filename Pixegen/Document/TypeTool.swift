@@ -34,8 +34,11 @@ nonisolated struct LayerTextStyle: Codable, Equatable, Sendable {
     var fontRuns: [LayerTextFontRun]? = nil
     /// Set when the text runs along a path instead of in lines (version 21). It has no box then.
     var path: TextPath? = nil
+    /// Set when the text wraps inside a shape instead of its box (version 22). The box is then the shape's, padded.
+    var area: TextArea? = nil
     var isValid: Bool {
         content.utf16.count <= 100_000 && boxIsValid && (path.map { $0.isValid && boxSize == nil } ?? true)
+        && (area.map { $0.isValid && boxSize != nil && path == nil } ?? true)
         && fontSize.isFinite && (1...2000).contains(fontSize)
         && [red, green, blue].allSatisfy { $0.isFinite && (0...1).contains($0) }
         && tracking.isFinite && (-100...1000).contains(tracking)
@@ -301,6 +304,9 @@ extension EditorSession {
             textDefaults = draft.style
             textDefaults.colorRuns = nil
             textDefaults.fontRuns = nil
+            // The next text starts as point text, wherever this one ran.
+            textDefaults.path = nil
+            textDefaults.area = nil
             textDraft = nil
             canvasFocusRequest += 1
             return true
@@ -487,8 +493,7 @@ extension EditorSession {
         NSGraphicsContext.current = NSGraphicsContext(cgContext: context, flipped: true)
         let storage = NSTextStorage(attributedString: string)
         let layout = NSLayoutManager()
-        let container = NSTextContainer(size: CGSize(width: max(1, width - 2 * padding), height: max(1, height - 2 * padding)))
-        container.lineFragmentPadding = 0
+        let container = textContainer(style, size: CGSize(width: width, height: height))
         storage.addLayoutManager(layout)
         layout.addTextContainer(container)
         let glyphs = layout.glyphRange(for: container)

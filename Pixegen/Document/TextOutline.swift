@@ -11,9 +11,7 @@ extension EditorSession {
         let size = textBoxSize(style)
         let storage = NSTextStorage(attributedString: attributedText(style))
         let layout = NSLayoutManager()
-        let container = NSTextContainer(size: CGSize(width: max(1, ceil(size.width) - 2 * padding),
-                                                     height: max(1, ceil(size.height) - 2 * padding)))
-        container.lineFragmentPadding = 0
+        let container = textContainer(style, size: size)
         storage.addLayoutManager(layout)
         layout.addTextContainer(container)
         let content = storage.string as NSString
