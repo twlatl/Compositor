@@ -109,6 +109,8 @@ final class InlineTextEditor: NSView, NSTextViewDelegate {
         textView.isVerticallyResizable = false
         textView.isHorizontallyResizable = false
         textView.textContainerInset = .zero
+        // One that wraps text in a shape as it's drawn; box and point text use it as an ordinary container.
+        textView.replaceTextContainer(AreaTextContainer())
         textView.textContainer?.lineFragmentPadding = 0
         textView.textContainer?.widthTracksTextView = true
         textView.textContainer?.heightTracksTextView = true
@@ -210,6 +212,12 @@ final class InlineTextEditor: NSView, NSTextViewDelegate {
             let face = style.fontName(at: caret)
             attributes[.font] = NSFont(name: face, size: style.fontSize) ?? NSFont.systemFont(ofSize: style.fontSize)
             textView.typingAttributes = attributes
+            // Text in a shape wraps to its outline as it will be drawn.
+            if shownStyle?.area != style.area || shownStyle?.boxSize != style.boxSize {
+                let padding = LayerTextStyle.padding
+                textView.textContainer?.exclusionPaths = EditorSession.areaExclusion(style, size: CGSize(
+                    width: max(1, logicalSize.width - 2 * padding), height: max(1, logicalSize.height - 2 * padding)))
+            }
             shownStyle = style
             // Text on a path lays its letters out along the path, not where the text view puts them, so the view's
             // own caret and selection would be in the wrong place: this view draws them instead.
@@ -404,8 +412,8 @@ final class InlineTextEditor: NSView, NSTextViewDelegate {
     /// The edge or corner at a point, in handle order: a band along each edge, as the Move tool's box has, rather
     /// than only the handle squares. Nil anywhere else, which is the text.
     private func handle(at point: CGPoint) -> Int? {
-        // Text on a path has no box to resize.
-        guard pathStyle == nil else { return nil }
+        // Text on a path has no box to resize, and text in a shape takes the shape's.
+        guard pathStyle == nil, canvas?.session.textDraft?.style.area == nil else { return nil }
         let reach = edgeReach
         let left = point.x <= reach, right = point.x >= bounds.width - reach
         let top = point.y <= reach, bottom = point.y >= bounds.height - reach
@@ -502,6 +510,7 @@ final class InlineTextEditor: NSView, NSTextViewDelegate {
 
     override func draw(_ dirtyRect: NSRect) {
         if let style = pathStyle { drawPathText(style); return }
+        if let area = canvas?.session.textDraft?.style.area { drawArea(area); return }
         NSColor.controlAccentColor.setStroke()
         let box = NSBezierPath(rect: bounds.insetBy(dx: handleSize / 12, dy: handleSize / 12))
         box.lineWidth = handleSize / 6
@@ -529,6 +538,33 @@ final class InlineTextEditor: NSView, NSTextViewDelegate {
             }
         }
     }
+    /// Text in a shape: the shape's outline in place of a box, and a plus at its bottom-right corner when the text
+    /// doesn't fit, as box text has.
+    private func drawArea(_ area: TextArea) {
+        guard let context = NSGraphicsContext.current?.cgContext else { return }
+        context.saveGState()
+        defer { context.restoreGState() }
+        context.addPath(area.cgPath)
+        context.setStrokeColor(NSColor.controlAccentColor.withAlphaComponent(0.6).cgColor)
+        context.setLineWidth(handleSize / 6)
+        context.strokePath()
+        guard let container = textView.textContainer, let layout = textView.layoutManager else { return }
+        layout.ensureLayout(for: container)
+        guard NSMaxRange(layout.glyphRange(for: container)) < layout.numberOfGlyphs else { return }
+        let box = area.cgPath.boundingBoxOfPath
+        let square = CGRect(x: box.maxX - handleSize / 2, y: box.maxY - handleSize / 2, width: handleSize, height: handleSize)
+        context.setFillColor(NSColor.white.cgColor)
+        context.fill(square)
+        context.setStrokeColor(NSColor.controlAccentColor.cgColor)
+        context.setLineWidth(handleSize / 6)
+        context.stroke(square)
+        let arm = handleSize * 0.42
+        context.move(to: CGPoint(x: square.midX - arm, y: square.midY)); context.addLine(to: CGPoint(x: square.midX + arm, y: square.midY))
+        context.move(to: CGPoint(x: square.midX, y: square.midY - arm)); context.addLine(to: CGPoint(x: square.midX, y: square.midY + arm))
+        context.setStrokeColor(NSColor.black.cgColor)
+        context.strokePath()
+    }
+
     override func mouseDown(with event: NSEvent) {
         if let style = pathStyle, let path = style.path {
             let point = convert(event.locationInWindow, from: nil)
@@ -639,6 +675,10 @@ extension CanvasView {
             else { inlineTextEditor?.mouseDown(with: event) }
         } else if let target = session.textPathTarget(at: pixel, tolerance: tolerance) {
             session.beginTextOnPath(target.subpath, at: target.distance)
+            synchronizeInlineText()
+        } else if let shape = session.textAreaTarget(at: pixel) {
+            // Inside a closed shape, away from its edge: text that wraps to fit it.
+            session.beginTextInShape(shape)
             synchronizeInlineText()
         } else {
             textBoxAnchor = pixel
