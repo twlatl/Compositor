@@ -6,6 +6,7 @@ extension EditorSession {
     /// without an outline (spaces, emoji) add nothing.
     static func textOutlines(_ style: LayerTextStyle) -> [(color: PaletteColor, letters: String, path: CGPath)] {
         guard style.isValid else { return [] }
+        if style.path != nil { return pathTextOutlines(style) }
         let padding = LayerTextStyle.padding
         let size = textBoxSize(style)
         let storage = NSTextStorage(attributedString: attributedText(style))
@@ -43,6 +44,26 @@ extension EditorSession {
                     path.addPath(glyph)
                     groups.append((color, letter, path))
                 }
+            }
+        }
+        return groups.map { ($0.color, $0.letters, $0.path) }
+    }
+
+    /// `textOutlines` for text on a path: each letter's outline turned and placed as `pathTextImage` draws it.
+    private static func pathTextOutlines(_ style: LayerTextStyle) -> [(color: PaletteColor, letters: String, path: CGPath)] {
+        let content = style.content as NSString
+        var groups: [(color: PaletteColor, letters: String, path: CGMutablePath)] = []
+        for letter in pathTextLayout(style).glyphs {
+            var place = letter.transform
+            guard let glyph = CTFontCreatePathForGlyph(letter.font, letter.glyph, &place), !glyph.isEmpty else { continue }
+            let text = content.substring(with: NSRange(location: letter.character, length: 1))
+            if let group = groups.firstIndex(where: { $0.color == letter.color }) {
+                groups[group].path.addPath(glyph)
+                groups[group].letters += text
+            } else {
+                let path = CGMutablePath()
+                path.addPath(glyph)
+                groups.append((letter.color, text, path))
             }
         }
         return groups.map { ($0.color, $0.letters, $0.path) }

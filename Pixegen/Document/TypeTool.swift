@@ -32,8 +32,10 @@ nonisolated struct LayerTextStyle: Codable, Equatable, Sendable {
     var colorRuns: [LayerTextColorRun]? = nil
     /// Letters set in a face other than `fontName`, in the same offsets. Nil when the whole text is one face.
     var fontRuns: [LayerTextFontRun]? = nil
+    /// Set when the text runs along a path instead of in lines (version 21). It has no box then.
+    var path: TextPath? = nil
     var isValid: Bool {
-        content.utf16.count <= 100_000 && boxIsValid
+        content.utf16.count <= 100_000 && boxIsValid && (path.map { $0.isValid && boxSize == nil } ?? true)
         && fontSize.isFinite && (1...2000).contains(fontSize)
         && [red, green, blue].allSatisfy { $0.isFinite && (0...1).contains($0) }
         && tracking.isFinite && (-100...1000).contains(tracking)
@@ -288,12 +290,13 @@ extension EditorSession {
                 if layer.liveText?.style == draft.style && (draft.transform == nil || draft.transform == layer.transform) { succeeded = true; return true }
                 let thumbnail = try PixelInvert.thumbnail(of: image)
                 var transform = draft.transform ?? layer.transform
-                // Keep the transformed upper-left corner and the user's scale, rotation and flips.
-                let anchor = transform.point(.zero)
+                // Keep the transformed upper-left corner (text on a path: its path) and the user's scale, rotation and
+                // flips.
+                let anchor = transform.point(Self.unit(layer.liveText?.style.anchor ?? .zero, in: asset.image))
                 if draft.transform == nil || draft.style.boxSize == nil {
                     transform.size = CGSize(width: CGFloat(image.width) * transform.size.width / CGFloat(asset.image.width),
                                             height: CGFloat(image.height) * transform.size.height / CGFloat(asset.image.height))
-                    let moved = transform.point(.zero)
+                    let moved = transform.point(Self.unit(draft.style.anchor, in: image))
                     transform.origin.x += anchor.x - moved.x
                     transform.origin.y += anchor.y - moved.y
                 }
@@ -305,7 +308,8 @@ extension EditorSession {
                 document?.layers[index].transform = transform
                 endEdit()
             } else {
-                addPixelLayer(image, at: draft.origin, name: Self.layerName(for: draft.style.content), editName: "New Text Layer",
+                let anchor = draft.style.anchor
+                addPixelLayer(image, at: CGPoint(x: draft.origin.x - anchor.x, y: draft.origin.y - anchor.y), name: Self.layerName(for: draft.style.content), editName: "New Text Layer",
                               dropsSelection: false, text: text)
             }
             succeeded = true
@@ -418,6 +422,7 @@ extension EditorSession {
     /// How big point text is: what it measures, plus its padding. A caret's worth of width so an empty line still
     /// has somewhere to type.
     static func textBoxSize(_ style: LayerTextStyle) -> CGSize {
+        if style.path != nil { return pathTextSize(style) }
         if let boxSize = style.boxSize { return boxSize }
         let string = attributedText(style)
         let padding = LayerTextStyle.padding
@@ -442,12 +447,18 @@ extension EditorSession {
         return string
     }
 
+    /// A point in a text layer's pixels as a fraction of `image`, the way a transform places it.
+    nonisolated static func unit(_ point: CGPoint, in image: CGImage) -> CGPoint {
+        CGPoint(x: point.x / CGFloat(max(1, image.width)), y: point.y / CGFloat(max(1, image.height)))
+    }
+
     static func containsTextRun(_ location: Int, _ length: Int, in total: Int) -> Bool {
         length > 0 && location >= 0 && location <= total - length
     }
 
     static func textImage(_ style: LayerTextStyle) throws -> CGImage {
         guard style.isValid else { throw ProjectError.invalid }
+        if style.path != nil { return try pathTextImage(style) }
         let string = attributedText(style)
         let padding = LayerTextStyle.padding
         let size = textBoxSize(style)
