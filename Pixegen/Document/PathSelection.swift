@@ -245,7 +245,10 @@ extension EditorSession {
                 drag.slide = TextPathSlide(textPath, at: point.applying(path.toDocument.inverted()))
                 pathDrag = drag
                 beginEdit("Move Type Along Path")
+                return
             }
+            pathDrag = drag
+            beginEdit("Edit Path")
             return
         }
         if drag.hit == .shape(layer.id), let document {
@@ -352,7 +355,7 @@ extension EditorSession {
     func deleteSelectedPathKnots() {
         guard pathSelectionMode == .direct, !selectedPathKnots.isEmpty, canEditLayers, let path = selectedPath,
               let index = document?.layers.firstIndex(where: { $0.id == path.layer.id }) else { return }
-        guard path.text == nil, path.layer.liveShape?.style.kind != .line else { NSSound.beep(); return }
+        guard path.layer.liveShape?.style.kind != .line else { NSSound.beep(); return }
         var knots = path.knots
         for knot in selectedPathKnots.sorted(by: { ($0.subpath, $0.knot) > ($1.subpath, $1.knot) })
             where knots.indices.contains(knot.subpath) && knots[knot.subpath].knots.indices.contains(knot.knot) {
