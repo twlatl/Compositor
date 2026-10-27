@@ -195,6 +195,7 @@ final class TransformOverlay: NSView {
         drawLassoDraft()
         drawWorkPath()
         drawShapePath()
+        drawPenDraft()
         drawSnapGuides()
         drawRulerOriginDrag()
     }
@@ -339,17 +340,19 @@ final class TransformOverlay: NSView {
     }
 
 
-    /// The outline the Shape tool drew in Path mode, shown while the tool is in use.
+    /// The outline the Shape or Pen tool drew in Path mode, shown while either tool is in use.
     private func drawWorkPath() {
-        guard session.tool == .shape, let workPath = session.workPath, var transform = documentToView,
+        guard session.tool == .shape || session.tool == .pen, let workPath = session.workPath, var transform = documentToView,
               let path = workPath.copy(using: &transform), let context = NSGraphicsContext.current?.cgContext else { return }
         CanvasView.strokeOutline(path, in: context)
     }
 
     /// With the Path Selection tool, the active shape's path and its anchor points: filled where selected, hollow
-    /// where not, with the handles of the selected points.
+    /// where not, with the handles of the selected points. With the Pen tool, between paths, its points all hollow,
+    /// to add to or take away from.
     private func drawShapePath() {
-        guard session.tool == .pathSelection, let knots = session.pathKnotsInDocument, let transform = documentToView,
+        let pen = session.tool == .pen && session.penDraft == nil
+        guard session.tool == .pathSelection || pen, let knots = session.pathKnotsInDocument, let transform = documentToView,
               let context = NSGraphicsContext.current?.cgContext else { return }
         var toView = transform
         for outline in session.otherSelectedShapeOutlines {
@@ -357,7 +360,7 @@ final class TransformOverlay: NSView {
         }
         guard let outline = ShapeOutline.path(of: knots).copy(using: &toView) else { return }
         CanvasView.strokeOutline(outline, in: context)
-        let selected = session.shownPathKnots
+        let selected = pen ? [] : session.shownPathKnots
         context.saveGState()
         context.setLineWidth(1)
         for (subpathIndex, subpath) in knots.enumerated() {
@@ -381,6 +384,58 @@ final class TransformOverlay: NSView {
                 context.setFillColor(isSelected ? NSColor.systemBlue.cgColor : NSColor.white.cgColor)
                 context.fill(square)
                 context.setStrokeColor(NSColor.systemBlue.cgColor)
+                context.stroke(square)
+            }
+        }
+        context.restoreGState()
+    }
+
+    /// The path being drawn with the Pen tool: its points so far, the handles of the last one, and a thinner segment
+    /// to the pointer for where the next click goes.
+    private func drawPenDraft() {
+        guard let draft = session.penDraft, let transform = documentToView,
+              let context = NSGraphicsContext.current?.cgContext else { return }
+        var toView = transform
+        let subpath = draft.subpath
+        if subpath.knots.count > 1, let path = ShapeOutline.path(of: [subpath]).copy(using: &toView) {
+            CanvasView.strokeOutline(path, in: context)
+        }
+        context.saveGState()
+        if let band = draft.rubberBand, let path = ShapeOutline.path(of: [band]).copy(using: &toView) {
+            context.addPath(path)
+            context.setStrokeColor(NSColor.systemBlue.withAlphaComponent(0.9).cgColor)
+            context.setLineWidth(1)
+            context.strokePath()
+        }
+        guard draft.mode != .freeform else { context.restoreGState(); return }
+        context.setLineWidth(1)
+        context.setStrokeColor(NSColor.systemBlue.cgColor)
+        if draft.mode == .pen, let last = draft.knots.last {
+            // The handles of the point just placed, and of the first while the closing curve is dragged.
+            for knot in draft.closing ? [draft.knots[0], last] : [last] {
+                let anchor = knot.anchor.applying(transform)
+                for handle in [knot.incoming, knot.outgoing] where handle != knot.anchor {
+                    let point = handle.applying(transform)
+                    context.move(to: anchor)
+                    context.addLine(to: point)
+                    context.strokePath()
+                    let dot = CGRect(x: point.x - 3, y: point.y - 3, width: 6, height: 6)
+                    context.setFillColor(NSColor.white.cgColor)
+                    context.fillEllipse(in: dot)
+                    context.strokeEllipse(in: dot)
+                }
+            }
+        }
+        for (index, knot) in draft.knots.enumerated() {
+            let anchor = knot.anchor.applying(transform)
+            let square = CGRect(x: anchor.x - 3.5, y: anchor.y - 3.5, width: 7, height: 7)
+            // The newest point filled, as Photoshop shows the one the next segment starts from.
+            context.setFillColor(index == draft.knots.count - 1 ? NSColor.systemBlue.cgColor : NSColor.white.cgColor)
+            if draft.mode == .curvature, !draft.corners.contains(index) {
+                context.fillEllipse(in: square)
+                context.strokeEllipse(in: square)
+            } else {
+                context.fill(square)
                 context.stroke(square)
             }
         }

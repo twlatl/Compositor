@@ -570,9 +570,9 @@ extension EditorSession {
     }
 
     /// The shape layer the Shape tool's bar edits, as in Photoshop: the selected layer while it's still a shape, with
-    /// the Shape or Path Selection tool in hand and nothing being drawn.
+    /// the Shape, Pen or Path Selection tool in hand and nothing being drawn.
     var shapeBarLayer: ImageLayer? {
-        guard tool == .shape || tool == .pathSelection, shapeDraft == nil, pathDrag == nil else { return nil }
+        guard tool == .shape || tool == .pathSelection || tool == .pen, shapeDraft == nil, penDraft == nil, pathDrag == nil else { return nil }
         return pathLayer
     }
 

@@ -329,7 +329,7 @@ extension EditorSession {
     }
 
     /// Redraws the layer at `index` as `knots`, starting from the shape and placement the drag began with.
-    private func applyPath(_ knots: [ShapeOutline.Subpath], from drag: PathDrag, at index: Int) {
+    func applyPath(_ knots: [ShapeOutline.Subpath], from drag: PathDrag, at index: Int) {
         guard let reshaped = Self.reshaped(style: drag.style, transform: drag.transform, knots: knots),
               let layer = document?.layers[index], let asset = layer.asset else { return }
         let size = CGSize(width: max(1, reshaped.transform.size.width.rounded()), height: max(1, reshaped.transform.size.height.rounded()))
