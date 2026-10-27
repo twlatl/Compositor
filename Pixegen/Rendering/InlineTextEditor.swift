@@ -91,6 +91,8 @@ final class InlineTextEditor: NSView, NSTextViewDelegate {
     private var measuredStyle: LayerTextStyle?
     private var measuredSize: CGSize = .zero
     private var resize: (handle: Int, draft: TextDraft, transform: LayerTransform, start: CGPoint)?
+    /// Command-drag on text on a path: the text sliding along it.
+    private var slide: TextPathSlide?
     /// The transform the editor is actually showing. Point text grows as it is typed, so this is not always the
     /// draft's own transform, and a resize has to start from what is on screen or the text jumps.
     override var isFlipped: Bool { true }
@@ -146,15 +148,18 @@ final class InlineTextEditor: NSView, NSTextViewDelegate {
             }
             logicalSize = measuredSize
         }
-        var transform = draft.transform ?? LayerTransform(origin: draft.origin, size: logicalSize)
+        // New text on a path starts from where its path's box is; see `LayerTextStyle.anchor`.
+        var transform = draft.transform ?? LayerTransform(origin: CGPoint(x: draft.origin.x - style.anchor.x, y: draft.origin.y - style.anchor.y),
+                                                          size: logicalSize)
         // Point text already on a layer grows as it is typed too, keeping whatever scale the layer was given.
         if style.boxSize == nil, draft.transform != nil, let asset = layer?.asset, asset.image.width > 0 {
             let factor = transform.size.width / CGFloat(asset.image.width)
             // A rotated layer turns about its center, so growing it swings its corner away and the text drifts as it
-            // is typed. The top-left corner is put back where it was, which is where the commit leaves it too.
-            let anchor = transform.point(.zero)
+            // is typed. The top-left corner (text on a path: its path) is put back where it was, which is where the
+            // commit leaves it too.
+            let anchor = transform.point(EditorSession.unit(layer?.liveText?.style.anchor ?? .zero, in: asset.image))
             transform.size = CGSize(width: logicalSize.width * factor, height: logicalSize.height * factor)
-            let moved = transform.point(.zero)
+            let moved = transform.point(CGPoint(x: style.anchor.x / logicalSize.width, y: style.anchor.y / logicalSize.height))
             transform.origin.x += anchor.x - moved.x
             transform.origin.y += anchor.y - moved.y
         }
@@ -206,6 +211,10 @@ final class InlineTextEditor: NSView, NSTextViewDelegate {
             attributes[.font] = NSFont(name: face, size: style.fontSize) ?? NSFont.systemFont(ofSize: style.fontSize)
             textView.typingAttributes = attributes
             shownStyle = style
+            // Text on a path lays its letters out along the path, not where the text view puts them, so the view's
+            // own caret and selection would be in the wrong place: this view draws them instead.
+            textView.selectedTextAttributes = [.backgroundColor: style.path == nil
+                ? NSColor.selectedTextBackgroundColor.withAlphaComponent(0.45) : NSColor.clear]
             updateInsertionPointColor(style)
             synchronizing = false
             needsDisplay = true
@@ -261,7 +270,10 @@ final class InlineTextEditor: NSView, NSTextViewDelegate {
         if textView.holdsSelection, selection.length == 0, (session.textDraft?.selection.length ?? 0) > 0 { return }
         textView.holdsSelection = false
         if session.textDraft?.selection != selection { session.textDraft?.selection = selection }
-        if let style = session.textDraft?.style { updateInsertionPointColor(style) }
+        if let style = session.textDraft?.style {
+            updateInsertionPointColor(style)
+            if style.path != nil { needsDisplay = true }
+        }
     }
     /// Puts back a selection a focus change wiped, so the font menu still edits those letters.
     func keepSelection(_ range: NSRange) {
@@ -271,7 +283,8 @@ final class InlineTextEditor: NSView, NSTextViewDelegate {
     private func updateInsertionPointColor(_ style: LayerTextStyle) {
         let location = textView.selectedRange().location
         let color = style.color(at: location > 0 ? location - 1 : 0)
-        textView.insertionPointColor = NSColor(srgbRed: color.red, green: color.green, blue: color.blue, alpha: 1)
+        textView.insertionPointColor = style.path != nil ? .clear
+            : NSColor(srgbRed: color.red, green: color.green, blue: color.blue, alpha: 1)
     }
 
     private var handleTracking: NSTrackingArea?
@@ -331,6 +344,8 @@ final class InlineTextEditor: NSView, NSTextViewDelegate {
             return
         }
         guard resize == nil, canvas?.session.colorPicker == nil else { return }
+        // Command over text on a path: the Path Selection arrow, which slides it.
+        if pathStyle != nil, NSEvent.modifierFlags.contains(.command) { CanvasView.pathSelectionCursor.set(); return }
         guard let index = handle(at: point) else { NSCursor.iBeam.set(); return }
         handleCursor(index).set()
     }
@@ -389,6 +404,8 @@ final class InlineTextEditor: NSView, NSTextViewDelegate {
     /// The edge or corner at a point, in handle order: a band along each edge, as the Move tool's box has, rather
     /// than only the handle squares. Nil anywhere else, which is the text.
     private func handle(at point: CGPoint) -> Int? {
+        // Text on a path has no box to resize.
+        guard pathStyle == nil else { return nil }
         let reach = edgeReach
         let left = point.x <= reach, right = point.x >= bounds.width - reach
         let top = point.y <= reach, bottom = point.y >= bounds.height - reach
@@ -410,9 +427,81 @@ final class InlineTextEditor: NSView, NSTextViewDelegate {
         if canvas?.session.colorPicker != nil { return nil }
         let local = convert(point, from: superview)
         if handle(at: local) != nil { return self }
+        // A click on text on a path places the caret along the path, which this view works out.
+        if pathStyle != nil, bounds.contains(local) { return self }
         return super.hitTest(point)
     }
+
+    /// The draft's style when it's text on a path.
+    private var pathStyle: LayerTextStyle? {
+        guard let style = canvas?.session.textDraft?.style, style.path != nil else { return nil }
+        return style
+    }
+    private var pathLayoutCache: (style: LayerTextStyle, layout: PathTextLayout)?
+    private func pathLayout(_ style: LayerTextStyle) -> PathTextLayout {
+        if let cached = pathLayoutCache, cached.style == style { return cached.layout }
+        let layout = EditorSession.pathTextLayout(style)
+        pathLayoutCache = (style, layout)
+        return layout
+    }
+
+    /// The path, the selection along it, the caret, and a plus at the path's end when letters run off it.
+    private func drawPathText(_ style: LayerTextStyle) {
+        let layout = pathLayout(style)
+        guard let ruler = layout.ruler, let context = NSGraphicsContext.current?.cgContext else { return }
+        let line = handleSize / 6
+        context.saveGState()
+        defer { context.restoreGState() }
+        context.setLineCap(.round)
+        context.setLineJoin(.round)
+        context.addPath(ruler.stretch(from: 0, to: ruler.length))
+        context.setStrokeColor(NSColor.controlAccentColor.withAlphaComponent(0.6).cgColor)
+        context.setLineWidth(line)
+        context.strokePath()
+        let selection = textView.selectedRange()
+        let distances = layout.caretDistances
+        if selection.length > 0, let from = distances[selection.location],
+           let to = distances[NSMaxRange(selection)] ?? distances.filter({ $0.key > selection.location }).map(\.value).max() {
+            context.addPath(ruler.stretch(from: min(from, to), to: max(from, to)))
+            context.setStrokeColor(NSColor.selectedTextBackgroundColor.withAlphaComponent(0.45).cgColor)
+            context.setLineWidth(style.fontSize * 0.5)
+            context.strokePath()
+        } else if let at = distances[selection.location], let placed = ruler.place(at: at) {
+            // Upright on the path, from a little below it to the letters' height.
+            let up = CGPoint(x: sin(placed.angle), y: -cos(placed.angle))
+            context.move(to: CGPoint(x: placed.point.x - up.x * style.fontSize * 0.2, y: placed.point.y - up.y * style.fontSize * 0.2))
+            context.addLine(to: CGPoint(x: placed.point.x + up.x * style.fontSize * 0.8, y: placed.point.y + up.y * style.fontSize * 0.8))
+            let color = style.color(at: selection.location > 0 ? selection.location - 1 : 0)
+            context.setStrokeColor(CGColor(srgbRed: color.red, green: color.green, blue: color.blue, alpha: 1))
+            context.setLineWidth(max(1, line))
+            context.strokePath()
+        }
+        if layout.overflows, let end = ruler.place(at: ruler.closed ? 0 : ruler.length) {
+            let radius = handleSize * 0.9, arm = radius * 0.55
+            let marker = CGRect(x: end.point.x - radius, y: end.point.y - radius, width: radius * 2, height: radius * 2)
+            context.setFillColor(NSColor.white.cgColor)
+            context.fillEllipse(in: marker)
+            context.setStrokeColor(NSColor.black.cgColor)
+            context.setLineWidth(line)
+            context.strokeEllipse(in: marker)
+            context.move(to: CGPoint(x: end.point.x - arm, y: end.point.y)); context.addLine(to: CGPoint(x: end.point.x + arm, y: end.point.y))
+            context.move(to: CGPoint(x: end.point.x, y: end.point.y - arm)); context.addLine(to: CGPoint(x: end.point.x, y: end.point.y + arm))
+            context.strokePath()
+        }
+    }
+
+    /// The caret moved to the letter boundary nearest a click on text on a path.
+    private func placePathCaret(at point: CGPoint, style: LayerTextStyle) {
+        let layout = pathLayout(style)
+        guard let along = layout.ruler?.nearest(to: point)?.distance,
+              let index = layout.caretDistances.min(by: { abs($0.value - along) < abs($1.value - along) })?.key else { return }
+        window?.makeFirstResponder(textView)
+        textView.setSelectedRange(NSRange(location: min(index, textView.string.utf16.count), length: 0))
+        needsDisplay = true
+    }
+
     override func draw(_ dirtyRect: NSRect) {
+        if let style = pathStyle { drawPathText(style); return }
         NSColor.controlAccentColor.setStroke()
         let box = NSBezierPath(rect: bounds.insetBy(dx: handleSize / 12, dy: handleSize / 12))
         box.lineWidth = handleSize / 6
@@ -441,6 +530,17 @@ final class InlineTextEditor: NSView, NSTextViewDelegate {
         }
     }
     override func mouseDown(with event: NSEvent) {
+        if let style = pathStyle, let path = style.path {
+            let point = convert(event.locationInWindow, from: nil)
+            // Command-drag slides the text along its path, as the Path Selection tool does.
+            if event.modifierFlags.contains(.command) {
+                let anchor = style.anchor
+                slide = TextPathSlide(path, at: CGPoint(x: point.x - anchor.x, y: point.y - anchor.y))
+                return
+            }
+            placePathCaret(at: point, style: style)
+            return
+        }
         guard let canvas, let document = canvas.session.document, let draft = canvas.session.textDraft,
               let handle = handle(at: convert(event.locationInWindow, from: nil)) else { return }
         let transform = shownTransform ?? draft.transform ?? LayerTransform(origin: draft.origin, size: logicalSize)
@@ -457,6 +557,15 @@ final class InlineTextEditor: NSView, NSTextViewDelegate {
         resize = (handle, fixed, transform, pixel)
     }
     override func mouseDragged(with event: NSEvent) {
+        if var slide, let canvas, let anchor = pathStyle?.anchor {
+            let point = convert(event.locationInWindow, from: nil)
+            let path = slide.drag(to: CGPoint(x: point.x - anchor.x, y: point.y - anchor.y))
+            self.slide = slide
+            canvas.session.changeTextStyle { $0.path = path }
+            canvas.synchronizeDisplay()
+            needsDisplay = true
+            return
+        }
         guard let resize, let canvas, let document = canvas.session.document else { return }
         let point = canvas.session.viewport.documentPoint(from: canvas.convert(event.locationInWindow, from: nil), documentSize: document.size)
         let old = resize.transform
@@ -488,7 +597,7 @@ final class InlineTextEditor: NSView, NSTextViewDelegate {
         canvas.session.textDraft = draft
         canvas.synchronizeDisplay()
     }
-    override func mouseUp(with event: NSEvent) { resize = nil; window?.makeFirstResponder(textView) }
+    override func mouseUp(with event: NSEvent) { resize = nil; slide = nil; window?.makeFirstResponder(textView) }
 }
 
 extension CanvasView {
@@ -517,11 +626,20 @@ extension CanvasView {
         guard let document = session.document, session.finishText() else { return }
         let pixel = session.viewport.documentPoint(from: point, documentSize: document.size)
         let visible = document.effectiveVisibleIDs
-        if let layer = document.layers.reversed().first(where: { visible.contains($0.id) && $0.liveText != nil && $0.transform.contains(pixel) }) {
+        let tolerance = Self.textPathReach / max(session.viewport.pointsPerPixel, 0.0001)
+        // Text on a path is only picked up near its own path: its box is mostly empty room round the path.
+        if let layer = document.layers.reversed().first(where: {
+            visible.contains($0.id) && $0.liveText != nil && $0.transform.contains(pixel)
+                && ($0.liveText?.style.path == nil || session.isOnTextPath($0, at: pixel, tolerance: tolerance))
+        }) {
             session.selectLayer(layer.id)
             session.editActiveText()
             synchronizeInlineText()
-            inlineTextEditor?.textView.mouseDown(with: event)
+            if layer.liveText?.style.path == nil { inlineTextEditor?.textView.mouseDown(with: event) }
+            else { inlineTextEditor?.mouseDown(with: event) }
+        } else if let target = session.textPathTarget(at: pixel, tolerance: tolerance) {
+            session.beginTextOnPath(target.subpath, at: target.distance)
+            synchronizeInlineText()
         } else {
             textBoxAnchor = pixel
             textBoxRect = CGRect(origin: pixel, size: .zero)

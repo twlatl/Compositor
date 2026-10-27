@@ -296,6 +296,27 @@ final class CanvasView: NSView {
         path.lineJoinStyle = .round
         return path
     }
+    /// How near, in screen points, the Type tool has to come to a shape's path to set text along it.
+    static let textPathReach: CGFloat = 8
+    /// The Type tool near a path: a T over a wave, the text's baseline (the hot spot) on the wave.
+    static let typeOnPathCursor: NSCursor = {
+        let image = NSImage(size: NSSize(width: 24, height: 24), flipped: true) { _ in
+            let shape = NSBezierPath()
+            shape.move(to: NSPoint(x: 5, y: 3)); shape.line(to: NSPoint(x: 15, y: 3))
+            shape.move(to: NSPoint(x: 10, y: 3)); shape.line(to: NSPoint(x: 10, y: 14))
+            shape.move(to: NSPoint(x: 3, y: 18))
+            for step in 1...28 {
+                let x = 3 + CGFloat(step) / 2
+                shape.line(to: NSPoint(x: x, y: 18 - 2 * sin((x - 3) / 14 * 2 * .pi)))
+            }
+            shape.lineCapStyle = .round
+            shape.lineJoinStyle = .round
+            NSColor.white.setStroke(); shape.lineWidth = 3.5; shape.stroke()
+            NSColor.black.setStroke(); shape.lineWidth = 1.5; shape.stroke()
+            return true
+        }
+        return NSCursor(image: image, hotSpot: NSPoint(x: 10, y: 18))
+    }()
     /// Arrow with a small dashed box: dragging here moves the selection outline.
     static let moveSelectionCursor = selectionBadged(.arrow, boxAt: CGPoint(x: 9.5, y: 13.5))
     /// Pointing hand with a dashed box: Cmd-click a mask thumbnail to load it as a selection.
@@ -1549,12 +1570,20 @@ final class CanvasView: NSView {
         return spaceHeld || session.tool == .hand ? .openHand
             // The Move tool's cursor depends on the pointer (handles, Option to duplicate), so match it here.
             : session.tool == .move ? window.map { transformCursor(at: convert($0.mouseLocationOutsideOfEventStream, from: nil)) } ?? .arrow
-            : session.tool == .type ? .iBeam
+            : session.tool == .type ? typeCursor(at: window.map { convert($0.mouseLocationOutsideOfEventStream, from: nil) })
             : session.tool == .idle ? .arrow
             : session.tool == .pathSelection ? (session.pathSelectionMode == .direct ? Self.directSelectionCursor : Self.pathSelectionCursor)
             : session.tool == .pen ? penCursor(at: window.map { convert($0.mouseLocationOutsideOfEventStream, from: nil) })
             : session.tool == .zoom ? (optionHeld ? Self.zoomOutCursor : Self.zoomInCursor)
             : .crosshair
+    }
+
+    /// The Type tool's cursor at a view point: the I-beam, or near a shape's path, the text-on-a-path pointer.
+    private func typeCursor(at point: CGPoint?) -> NSCursor {
+        guard let point, let document = session.document, session.textDraft == nil else { return .iBeam }
+        let pixel = session.viewport.documentPoint(from: point, documentSize: document.size)
+        let tolerance = Self.textPathReach / max(session.viewport.pointsPerPixel, 0.0001)
+        return session.textPathTarget(at: pixel, tolerance: tolerance) == nil ? .iBeam : Self.typeOnPathCursor
     }
 
     /// The Pen tool's cursor at a view point: its badge says what a click there would do.
@@ -1737,6 +1766,7 @@ final class CanvasView: NSView {
         if session.tool == .move { updateTransformCursor(at: convert(event.locationInWindow, from: nil), flags: event.modifierFlags) }
         // The arrow follows Shift-A even when the cursor rects haven't been rebuilt yet.
         else if session.tool == .pathSelection, !spaceHeld { toolCursor.set() }
+        else if session.tool == .type, !spaceHeld, session.textDraft == nil { typeCursor(at: convert(event.locationInWindow, from: nil)).set() }
         else if session.tool == .pen, !spaceHeld, let document = session.document {
             let point = convert(event.locationInWindow, from: nil)
             let hadDraft = session.penDraft != nil
@@ -1754,6 +1784,7 @@ final class CanvasView: NSView {
         // the keys as they are now; the event's flags would undo Option's duplicate cursor straight away.
         else if session.tool == .move { updateTransformCursor(at: convert(event.locationInWindow, from: nil), flags: NSEvent.modifierFlags) }
         else if session.tool == .pathSelection || session.tool == .pen, !spaceHeld { toolCursor.set() }
+        else if session.tool == .type, !spaceHeld, session.textDraft == nil { toolCursor.set() }
         else { super.cursorUpdate(with: event) }
     }
     private func updateTransformCursor(at point: CGPoint, flags: NSEvent.ModifierFlags = NSEvent.modifierFlags) {
@@ -1833,6 +1864,12 @@ final class CanvasView: NSView {
     /// Right-drag with a brush tool: left and right resize the brush from its size at the press, or with Shift
     /// change its hardness. The brush circle stays where the press was.
     private var brushTipDrag: (start: CGPoint, diameter: CGFloat, hardness: CGFloat, hardnessShown: Bool)?
+    /// A right-click that isn't sizing a brush: the menu for the layer under the pointer (see `CanvasContextMenu`).
+    override func menu(for event: NSEvent) -> NSMenu? {
+        guard !session.tool.isBrushTool, !session.showsBusy, let document = session.document else { return nil }
+        let point = convert(event.locationInWindow, from: nil)
+        return CanvasContextMenu.menu(for: session, at: session.viewport.documentPoint(from: point, documentSize: document.size))
+    }
     override func rightMouseDown(with event: NSEvent) {
         guard session.tool.isBrushTool, session.brushStroke == nil, session.warpStroke == nil, !spaceHeld else {
             super.rightMouseDown(with: event); return

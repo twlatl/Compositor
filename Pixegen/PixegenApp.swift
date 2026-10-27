@@ -366,11 +366,19 @@ struct PixegenApp: App {
                         if let id = session.activeLayerID { session.toggleLayerVisibility(id) }
                     }.disabled(!session.canEditLayers || session.activeLayer == nil)
                     Divider()
-                    Button("Move Layer Up") { session.moveActiveLayer(by: 1) }
-                        .configuredKeyboardShortcut("]").disabled(!session.canMoveActiveLayer(by: 1))
-                    Button("Move Layer Down") { session.moveActiveLayer(by: -1) }
-                        .configuredKeyboardShortcut("[").disabled(!session.canMoveActiveLayer(by: -1))
+                    Menu("Arrange") {
+                        Button(LayerArrangement.front.rawValue) { session.arrange(.front) }
+                            .configuredKeyboardShortcut("]", modifiers: [.command, .shift]).disabled(!session.canArrange(.front))
+                        Button(LayerArrangement.forward.rawValue) { session.arrange(.forward) }
+                            .configuredKeyboardShortcut("]").disabled(!session.canArrange(.forward))
+                        Button(LayerArrangement.backward.rawValue) { session.arrange(.backward) }
+                            .configuredKeyboardShortcut("[").disabled(!session.canArrange(.backward))
+                        Button(LayerArrangement.back.rawValue) { session.arrange(.back) }
+                            .configuredKeyboardShortcut("[", modifiers: [.command, .shift]).disabled(!session.canArrange(.back))
+                    }
                     Group {
+                        Button("Convert to Outline") { session.convertTextToOutline() }
+                            .disabled(!session.canConvertTextToOutline)
                         Button(session.mergeTitle) { session.mergeLayers() }
                             .configuredKeyboardShortcut("e").disabled(!session.canMergeLayers)
                         Menu("Combine Shapes") {

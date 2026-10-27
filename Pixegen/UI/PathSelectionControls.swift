@@ -17,7 +17,9 @@ struct PathSelectionControls: View {
             .pickerStyle(.segmented).labelsHidden().fixedSize()
             .help("Shift-A (or Tab) switches between Path Selection and Direct Selection")
             ArrangeButton(session: session)
-            if session.pathLayer == nil {
+            if session.pathTextLayer != nil, session.pathLayer == nil {
+                Text("Drag the text along its path to slide it, or across to flip it").foregroundStyle(.secondary)
+            } else if session.pathLayer == nil {
                 Text("Click a shape to select its path").foregroundStyle(.secondary)
             } else {
                 if session.pathSelectionMode == .direct {

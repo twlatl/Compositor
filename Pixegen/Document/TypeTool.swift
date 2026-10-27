@@ -32,8 +32,10 @@ nonisolated struct LayerTextStyle: Codable, Equatable, Sendable {
     var colorRuns: [LayerTextColorRun]? = nil
     /// Letters set in a face other than `fontName`, in the same offsets. Nil when the whole text is one face.
     var fontRuns: [LayerTextFontRun]? = nil
+    /// Set when the text runs along a path instead of in lines (version 21). It has no box then.
+    var path: TextPath? = nil
     var isValid: Bool {
-        content.utf16.count <= 100_000 && boxIsValid
+        content.utf16.count <= 100_000 && boxIsValid && (path.map { $0.isValid && boxSize == nil } ?? true)
         && fontSize.isFinite && (1...2000).contains(fontSize)
         && [red, green, blue].allSatisfy { $0.isFinite && (0...1).contains($0) }
         && tracking.isFinite && (-100...1000).contains(tracking)
@@ -280,32 +282,19 @@ extension EditorSession {
             return true
         }
         do {
-            let image = try Self.textImage(draft.style)
-            let text = LayerText(style: draft.style, image: image)
             if let id = draft.layerID {
                 guard let index = document?.layers.firstIndex(where: { $0.id == id }),
-                      let layer = document?.layers[index], layer.liveText != nil, let asset = layer.asset else { return false }
+                      let layer = document?.layers[index], layer.liveText != nil else { return false }
                 if layer.liveText?.style == draft.style && (draft.transform == nil || draft.transform == layer.transform) { succeeded = true; return true }
-                let thumbnail = try PixelInvert.thumbnail(of: image)
-                var transform = draft.transform ?? layer.transform
-                // Keep the transformed upper-left corner and the user's scale, rotation and flips.
-                let anchor = transform.point(.zero)
-                if draft.transform == nil || draft.style.boxSize == nil {
-                    transform.size = CGSize(width: CGFloat(image.width) * transform.size.width / CGFloat(asset.image.width),
-                                            height: CGFloat(image.height) * transform.size.height / CGFloat(asset.image.height))
-                    let moved = transform.point(.zero)
-                    transform.origin.x += anchor.x - moved.x
-                    transform.origin.y += anchor.y - moved.y
-                }
-                guard transform.isValid else { throw ProjectError.tooLarge }
+                let placed = try Self.placedText(draft.style, on: layer, transform: draft.transform)
                 beginEdit("Edit Text")
-                if layer.mask?.placement == nil { document?.layers[index].mask?.placement = layer.maskTransform }
-                document?.layers[index].asset = ImportedImage(image: image, thumbnail: thumbnail, name: asset.name)
-                document?.layers[index].text = text
-                document?.layers[index].transform = transform
+                setText(placed, at: index)
                 endEdit()
             } else {
-                addPixelLayer(image, at: draft.origin, name: Self.layerName(for: draft.style.content), editName: "New Text Layer",
+                let image = try Self.textImage(draft.style)
+                let text = LayerText(style: draft.style, image: image)
+                let anchor = draft.style.anchor
+                addPixelLayer(image, at: CGPoint(x: draft.origin.x - anchor.x, y: draft.origin.y - anchor.y), name: Self.layerName(for: draft.style.content), editName: "New Text Layer",
                               dropsSelection: false, text: text)
             }
             succeeded = true
@@ -319,6 +308,37 @@ extension EditorSession {
             brushError = error.localizedDescription
             return false
         }
+    }
+
+    /// Text layer `layer` redrawn as `style`: its new pixels, and the placement that keeps its upper-left corner (text
+    /// on a path: its path) where it is on the document, with the layer's scale, rotation and flips. A box's own
+    /// `transform`, when given, is used as it is.
+    static func placedText(_ style: LayerTextStyle, on layer: ImageLayer,
+                           transform given: LayerTransform? = nil) throws -> (text: LayerText, thumbnail: CGImage, transform: LayerTransform) {
+        guard let old = layer.liveText else { throw ProjectError.invalid }
+        let image = try textImage(style)
+        let thumbnail = try PixelInvert.thumbnail(of: image)
+        var transform = given ?? layer.transform
+        if given == nil || style.boxSize == nil {
+            let anchor = transform.point(unit(old.style.anchor, in: old.image))
+            transform.size = CGSize(width: CGFloat(image.width) * transform.size.width / CGFloat(old.image.width),
+                                    height: CGFloat(image.height) * transform.size.height / CGFloat(old.image.height))
+            let moved = transform.point(unit(style.anchor, in: image))
+            transform.origin.x += anchor.x - moved.x
+            transform.origin.y += anchor.y - moved.y
+        }
+        guard transform.isValid else { throw ProjectError.tooLarge }
+        return (LayerText(style: style, image: image), thumbnail, transform)
+    }
+
+    /// Puts text `placedText` worked out on the layer at `index`. Not an undo step of its own.
+    func setText(_ placed: (text: LayerText, thumbnail: CGImage, transform: LayerTransform), at index: Int) {
+        guard let layer = document?.layers[index], let asset = layer.asset else { return }
+        // A mask that follows the layer's pixel grid stays where it is while that grid changes.
+        if layer.mask?.placement == nil { document?.layers[index].mask?.placement = layer.maskTransform }
+        document?.layers[index].asset = ImportedImage(image: placed.text.image, thumbnail: placed.thumbnail, name: asset.name)
+        document?.layers[index].text = placed.text
+        document?.layers[index].transform = placed.transform
     }
 
     @discardableResult
@@ -418,6 +438,7 @@ extension EditorSession {
     /// How big point text is: what it measures, plus its padding. A caret's worth of width so an empty line still
     /// has somewhere to type.
     static func textBoxSize(_ style: LayerTextStyle) -> CGSize {
+        if style.path != nil { return pathTextSize(style) }
         if let boxSize = style.boxSize { return boxSize }
         let string = attributedText(style)
         let padding = LayerTextStyle.padding
@@ -442,12 +463,18 @@ extension EditorSession {
         return string
     }
 
+    /// A point in a text layer's pixels as a fraction of `image`, the way a transform places it.
+    nonisolated static func unit(_ point: CGPoint, in image: CGImage) -> CGPoint {
+        CGPoint(x: point.x / CGFloat(max(1, image.width)), y: point.y / CGFloat(max(1, image.height)))
+    }
+
     static func containsTextRun(_ location: Int, _ length: Int, in total: Int) -> Bool {
         length > 0 && location >= 0 && location <= total - length
     }
 
     static func textImage(_ style: LayerTextStyle) throws -> CGImage {
         guard style.isValid else { throw ProjectError.invalid }
+        if style.path != nil { return try pathTextImage(style) }
         let string = attributedText(style)
         let padding = LayerTextStyle.padding
         let size = textBoxSize(style)
