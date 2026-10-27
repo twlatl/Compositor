@@ -9,7 +9,7 @@ If you've been asked to make or change an image in a `.pbox` project, you don't 
 ## Working on the app itself
 
 - Build: open `Pixegen.xcodeproj` and run the **Pixegen** scheme, or `xcodebuild -project Pixegen.xcodeproj -scheme Pixegen -destination 'platform=macOS' build`.
-- Tests: the `PixegenTests` target (`xcodebuild ... test -only-testing:PixegenTests`). CI runs these on every push.
+- Tests: the `PixegenTests` target (`xcodebuild ... test -only-testing:PixegenTests`). CI runs these on every pull request and every push to `main`.
 - Match the surrounding code: its naming, its comment style and density.
 - American spelling in code, comments and UI ("color", not "colour").
 - The project file format is described in [docs/project-format.md](docs/project-format.md). A change to what's saved means a format version bump there and in `ProjectManifest.current`.
