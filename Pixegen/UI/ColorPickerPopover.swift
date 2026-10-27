@@ -467,9 +467,17 @@ struct ColorWell: View {
     @State private var eyedropperID: UUID?
 
     private var sampling: Bool { eyedropperID != nil && session.eyedropper?.id == eyedropperID }
+    /// The open picker, when it's this well's. The well shows its working color or gradient as it moves, whether or not
+    /// what it edits follows before the picker closes (the Shape tool's next shape, the Type tool's next text).
+    private var picker: ColorPickerState? {
+        guard let picker = session.colorPicker, let view = anchor.view, session.colorPickerAnchor === view else { return nil }
+        return picker
+    }
 
     var body: some View {
         let shape = RoundedRectangle(cornerRadius: 5, style: .continuous)
+        let color = picker?.color ?? color
+        let gradient = picker.map(\.gradient) ?? gradient
         HStack(spacing: 0) {
             Button {
                 session.clickColorWell(anchor.view, open: open)
