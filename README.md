@@ -52,7 +52,7 @@ Download the latest release from [GitHub Releases](https://github.com/twlatl/Pix
 - Camera Raw filter: light, color, curves, color mixer, color grading, detail, optics and geometry, in a panel beside the canvas; each section resets to its defaults from its header
 - Levels (with Auto), Curves, Hue/Saturation, Exposure, Gradient Map, Grain, Black & White, Color Balance and Invert
 - Gaussian Blur and Motion Blur that spread past a layer's edges
-- Add Noise, Vignette, Bloom / Glow, Dither, Scanlines, Tonal Contrast, Lens Correction and Remove Background
+- Add Noise, Vignette, Bloom / Glow, Dither, Scanlines, Tonal Contrast, Rim Light (up to three colored lights behind the subject, with glow that wraps it into the light), Lens Correction and Remove Background
 - Live previews, limited to the selection when there is one
 - Last Filter (⌃⌘F) runs the last filter again with the same settings
 
