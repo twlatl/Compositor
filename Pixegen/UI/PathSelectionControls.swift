@@ -18,7 +18,15 @@ struct PathSelectionControls: View {
             .help("Shift-A (or Tab) switches between Path Selection and Direct Selection")
             ArrangeButton(session: session)
             if session.pathTextLayer != nil, session.pathLayer == nil {
-                Text("Drag the text along its path to slide it, or across to flip it").foregroundStyle(.secondary)
+                if session.pathSelectionMode == .direct {
+                    Button("Delete Points") { session.deleteSelectedPathKnots() }
+                        .disabled(session.selectedPathKnots.isEmpty)
+                        .help("Remove the selected anchor points (Delete)")
+                }
+                Text(session.pathSelectionMode == .direct
+                     ? "Drag points to reshape the path, or the text to slide it along"
+                     : "Drag the text along its path to slide it, or across to flip it")
+                    .foregroundStyle(.secondary)
             } else if session.pathLayer == nil {
                 Text("Click a shape to select its path").foregroundStyle(.secondary)
             } else {

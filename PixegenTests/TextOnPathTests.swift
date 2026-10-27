@@ -185,6 +185,50 @@ struct TextOnPathTests {
         #expect(!moved.isFlipped, "outside the square is the letters' side all the way round")
     }
 
+    @Test func directSelectionReshapesTheTextsPath() throws {
+        let session = makeSession()
+        draw(session, .line, CGRect(x: 50, y: 200, width: 300, height: 0))
+        let layer = try type(session, "Bend", near: CGPoint(x: 60, y: 200))
+        session.selectTool(.pathSelection)
+        session.pathSelectionMode = .direct
+        let knots = try #require(session.pathKnotsInDocument?.first?.knots)
+        #expect(knots.count == 2)
+        let end = knots[1].anchor, other = knots[0].anchor
+        let count = session.history.undoCount
+        // Select the far end, then drag it down and out.
+        session.beginPathDrag(at: end, tolerance: 5, extend: false)
+        session.endPathDrag()
+        session.beginPathDrag(at: end, tolerance: 5, extend: false)
+        session.dragPath(to: CGPoint(x: end.x + 100, y: end.y + 150), breaksHandle: false)
+        session.endPathDrag()
+        let bent = try #require(session.activeLayer)
+        #expect(bent.liveText?.style.path != layer.liveText?.style.path)
+        let moved = try #require(session.pathKnotsInDocument?.first?.knots)
+        #expect(hypot(moved[1].anchor.x - end.x - 100, moved[1].anchor.y - end.y - 150) < 0.5, "the point follows the pointer")
+        #expect(hypot(moved[0].anchor.x - other.x, moved[0].anchor.y - other.y) < 0.5, "the other end stays where it was")
+        #expect(bent.transform.size.height > layer.transform.size.height, "the layer grows round the longer path")
+        // The letters follow the path down its slope.
+        let points = try centers(bent)
+        #expect(points.count == 4)
+        #expect(points.last!.y > points.first!.y)
+        #expect(session.history.undoCount <= count + 2)
+        session.undo()
+        #expect(session.activeLayer?.liveText?.style.path == layer.liveText?.style.path)
+    }
+
+    @Test func deletingAPointLeavesTheTextAPath() throws {
+        let session = makeSession()
+        draw(session, .line, CGRect(x: 50, y: 200, width: 300, height: 0))
+        _ = try type(session, "Two", near: CGPoint(x: 60, y: 200))
+        session.selectTool(.pathSelection)
+        session.pathSelectionMode = .direct
+        let knots = try #require(session.pathKnotsInDocument?.first?.knots)
+        session.beginPathDrag(at: knots[1].anchor, tolerance: 5, extend: false)
+        session.endPathDrag()
+        session.deleteSelectedPathKnots()
+        #expect(session.activeLayer?.liveText?.style.path?.subpath.knots.count == 2, "a line's two ends are all it has")
+    }
+
     @Test func savesAsVersion21AndReopens() async throws {
         let session = makeSession()
         draw(session, .ellipse, CGRect(x: 100, y: 100, width: 200, height: 200))
