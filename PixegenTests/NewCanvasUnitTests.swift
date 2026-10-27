@@ -26,6 +26,25 @@ import Testing
         #expect(NewCanvasUnit.allCases.map(\.next) == [.inches, .centimeters, .millimeters, .pixels])
     }
 
+    /// Resolution is typed in pixels per inch or per centimeter and kept per inch: 72 per inch is 28.35 per cm.
+    @Test func resolutionConvertsBetweenInchesAndCentimeters() {
+        #expect(ResolutionUnit.perInch.pixelsPerInch("72") == 72)
+        #expect(ResolutionUnit.perCentimeter.text(72) == "28.35")
+        #expect(ResolutionUnit.perInch.text(300) == "300")
+        #expect(abs((ResolutionUnit.perCentimeter.pixelsPerInch("118,11") ?? 0) - 300) < 0.01, "a comma works as the decimal point")
+        #expect(ResolutionUnit.perInch.pixelsPerInch("0") == nil)
+        #expect(ResolutionUnit.perInch.pixelsPerInch("9601") == nil)
+        #expect(ResolutionUnit.perCentimeter.pixelsPerInch("3780") == nil, "past 9,600 per inch")
+        #expect(ResolutionUnit.perCentimeter.pixelsPerInch("0.4") != nil && ResolutionUnit.perCentimeter.pixelsPerInch("3779") != nil,
+                "the limits the message gives are allowed")
+    }
+
+    /// App icon sizes come last, in a group of their own.
+    @Test func macIconPresetsComeLast() {
+        #expect(CanvasPreset.groups.last?.map(\.title) == ["Mac Icon 1024px", "Mac Icon 512px", "Mac Icon 256px"])
+        #expect(CanvasPreset.groups.last?.allSatisfy { $0.width == $0.height } == true)
+    }
+
     /// The chosen DPI is the document's, and goes into the saved project and exports.
     @Test func newProjectKeepsItsResolution() throws {
         let session = EditorSession()
