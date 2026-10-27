@@ -1833,6 +1833,12 @@ final class CanvasView: NSView {
     /// Right-drag with a brush tool: left and right resize the brush from its size at the press, or with Shift
     /// change its hardness. The brush circle stays where the press was.
     private var brushTipDrag: (start: CGPoint, diameter: CGFloat, hardness: CGFloat, hardnessShown: Bool)?
+    /// A right-click that isn't sizing a brush: the menu for the layer under the pointer (see `CanvasContextMenu`).
+    override func menu(for event: NSEvent) -> NSMenu? {
+        guard !session.tool.isBrushTool, !session.showsBusy, let document = session.document else { return nil }
+        let point = convert(event.locationInWindow, from: nil)
+        return CanvasContextMenu.menu(for: session, at: session.viewport.documentPoint(from: point, documentSize: document.size))
+    }
     override func rightMouseDown(with event: NSEvent) {
         guard session.tool.isBrushTool, session.brushStroke == nil, session.warpStroke == nil, !spaceHeld else {
             super.rightMouseDown(with: event); return

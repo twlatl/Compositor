@@ -198,6 +198,14 @@ struct NativeLayerList: NSViewRepresentable {
             }
             menu.addItem(depthItem)
 
+            // A text layer's letters as a shape.
+            if rows[row].liveText != nil {
+                let outlineItem = NSMenuItem(title: "Convert to Outline", action: #selector(convertToOutlineAction), keyEquivalent: "")
+                outlineItem.target = self
+                outlineItem.isEnabled = session.canConvertTextToOutline
+                menu.addItem(outlineItem)
+            }
+
             menu.addItem(NSMenuItem.separator())
 
             // 8. Add Mask >
@@ -292,6 +300,10 @@ struct NativeLayerList: NSViewRepresentable {
         @objc func renameLayerAction(_ sender: Any?) {
             guard session.canEditLayers, let id = session.activeLayerID else { return }
             session.renamingLayerID = id
+        }
+
+        @objc func convertToOutlineAction(_ sender: Any?) {
+            session.convertTextToOutline()
         }
 
         @objc func deleteLayerAction(_ sender: Any?) {
