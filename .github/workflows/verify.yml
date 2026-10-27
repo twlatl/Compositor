@@ -1,7 +1,10 @@
 name: Verify
 
 on:
+  # Pushes to main, and every pull request (forks too). A branch is tested once it has a PR, on the merge with
+  # its base, so a PR is not tested twice and shows no skipped checks.
   push:
+    branches: [main]
   pull_request:
   # Weekly, and by hand from the Actions tab, every suite runs, the filter suites included.
   schedule:
@@ -18,8 +21,6 @@ permissions:
 jobs:
   unit:
     name: unit
-    # Push covers same-repo branches. pull_request runs only for forks, so a PR is not tested twice.
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
     runs-on: macos-26
     timeout-minutes: 60
     steps:
@@ -98,7 +99,6 @@ jobs:
   # a screen that couldn't be reached doesn't fail the run.
   screenshots:
     name: screenshots
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
     runs-on: macos-26
     timeout-minutes: 30
     continue-on-error: true
