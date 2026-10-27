@@ -199,6 +199,7 @@ extension CommandPaletteEntry {
             ("Magic Wand", "W", .wand, { $0.wandMode = .wand }),
             ("Object Selection", "W", .wand, { $0.wandMode = .object }),
             ("Crop", "C", .crop, nil),
+            ("Slice", "K", .slice, nil),
             ("Brush", "B", .brush, { $0.brushMode = .paint }),
             ("Eraser", "E", .brush, { $0.brushMode = .erase }),
             ("Spot Healing Brush", "J", .spotHealing, nil),

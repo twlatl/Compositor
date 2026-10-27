@@ -134,7 +134,7 @@ An adjustment layer has an `adjustment` object and no `imageFile`, and it affect
 
 ## Slices
 
-To set up regions for File › Export for Web, add a top-level `slices` array (the manifest's `version` must be at least `21`). Each slice needs a `name` and whole-pixel `x`, `y`, `width` and `height` inside the canvas; `formats` is optional and defaults to one 1× PNG:
+To set up regions for File › Export for Web, add a top-level `slices` array (the manifest's `version` must be at least `23`). Each slice needs a `name` and whole-pixel `x`, `y`, `width` and `height` inside the canvas; `formats` is optional and defaults to one 1× PNG:
 
 ```json
 "slices": [

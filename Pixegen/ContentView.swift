@@ -83,7 +83,6 @@ struct ContentView: View {
                     Text("Drag to slice out a region to export").foregroundStyle(.secondary)
                     Spacer()
                 }.padding(.horizontal, 18).toolHeaderBar()
-                Divider()
             }
             // No tool keeps the header, so the canvas doesn't jump.
             if session.tool == .idle {
