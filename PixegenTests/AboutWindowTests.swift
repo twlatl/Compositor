@@ -6,7 +6,8 @@ import Testing
 @MainActor struct AboutWindowTests {
     @Test func creditsListPixegenAndEveryoneBehindCompositor() {
         let credits = AboutWindowController.credits()
-        let text = credits.string
+        // Names keep to one line with no-break spaces and hyphens.
+        let text = credits.string.replacingOccurrences(of: "\u{a0}", with: " ").replacingOccurrences(of: "\u{2011}", with: "-")
         for name in ["Ted Lee", "Robbie Tilton", "Cengokill", "Myron Koch", "Tao Xin", "xocialize", "Sparkle", "libwebp"] {
             #expect(text.contains(name), "\(name) is missing")
         }

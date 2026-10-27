@@ -62,7 +62,7 @@ final class AboutWindowController: NSObject {
         let all = NSRange(location: 0, length: credits.length)
         credits.enumerateAttribute(.font, in: all) { font, range, _ in
             let bold = (font as? NSFont)?.fontDescriptor.symbolicTraits.contains(.bold) == true
-            credits.addAttribute(.font, value: NSFont.systemFont(ofSize: 12, weight: bold ? .semibold : .regular), range: range)
+            credits.addAttribute(.font, value: NSFont.systemFont(ofSize: 14, weight: bold ? .semibold : .regular), range: range)
         }
         credits.addAttribute(.foregroundColor, value: NSColor.secondaryLabelColor, range: all)
         // Names without underlines, which would make the list busy; they still show a pointing hand.
