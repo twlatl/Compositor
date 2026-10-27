@@ -377,6 +377,8 @@ struct PixegenApp: App {
                             .configuredKeyboardShortcut("[", modifiers: [.command, .shift]).disabled(!session.canArrange(.back))
                     }
                     Group {
+                        Button("Convert to Outline") { session.convertTextToOutline() }
+                            .disabled(!session.canConvertTextToOutline)
                         Button(session.mergeTitle) { session.mergeLayers() }
                             .configuredKeyboardShortcut("e").disabled(!session.canMergeLayers)
                         Menu("Combine Shapes") {
