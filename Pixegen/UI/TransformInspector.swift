@@ -17,6 +17,7 @@ struct TransformInspector: View {
               .accessibilityIdentifier("transformAutoSelect")
           Toggle("Show Controls", isOn: $session.showsTransformControls)
               .help("Show the transform box and handles (⌘H). When hidden, drag anywhere to move the layer.")
+          ArrangeButton(session: session)
           ScrollView(.horizontal) {
             HStack(spacing: 12) {
                 field("X", value: value.origin.x) { $0.origin.x = $1 }.frame(width: 85)
