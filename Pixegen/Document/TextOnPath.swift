@@ -144,6 +144,75 @@ nonisolated struct PathRuler {
     }
 }
 
+/// Text on a path slid along it by a drag, as Photoshop's start marker is: the text moves as far along the path as the
+/// pointer does, and crossing to the path's other side flips it over. Points are in the path's own coordinates.
+nonisolated struct TextPathSlide {
+    /// The path as the drag found it.
+    let path: TextPath
+    private let ruler: PathRuler
+    /// How far along the path the pointer was last, and how far it has gone since the drag began.
+    private var along: CGFloat
+    private var travelled: CGFloat = 0
+    /// Which side of the path the pointer is on: 1 the side unflipped letters stand on, -1 the other.
+    private var side: CGFloat
+    private var flipped: Bool
+    /// How far past the path the pointer goes before it counts as the other side, so a drag along it doesn't flicker.
+    static let crossing: CGFloat = 2
+
+    init?(_ path: TextPath, at point: CGPoint) {
+        let ruler = PathRuler(path.cgPath, closed: path.subpath.closed)
+        guard ruler.length > 0, let near = ruler.nearest(to: point) else { return nil }
+        self.path = path
+        self.ruler = ruler
+        along = near.distance
+        flipped = path.isFlipped
+        let offset = Self.offset(of: point, at: near.distance, on: ruler)
+        // Right on the path, it's the side the letters are on.
+        side = abs(offset) < Self.crossing ? (flipped ? -1 : 1) : (offset < 0 ? -1 : 1)
+    }
+
+    /// How far `point` is from the path at `distance` along it: positive on the side unflipped letters stand on.
+    private static func offset(of point: CGPoint, at distance: CGFloat, on ruler: PathRuler) -> CGFloat {
+        guard let placed = ruler.place(at: distance) else { return 0 }
+        return (point.x - placed.point.x) * sin(placed.angle) - (point.y - placed.point.y) * cos(placed.angle)
+    }
+
+    /// The path with its text moved to follow the pointer at `point`.
+    mutating func drag(to point: CGPoint) -> TextPath {
+        if let near = ruler.nearest(to: point) {
+            var step = near.distance - along
+            // Round a closed path the short way: past its first point is a small step, not a whole lap back.
+            if ruler.closed { step = remainder(step, ruler.length) }
+            along = near.distance
+            travelled += step
+            let offset = Self.offset(of: point, at: near.distance, on: ruler)
+            if offset > Self.crossing, side < 0 { side = 1; flipped.toggle() }
+            if offset < -Self.crossing, side > 0 { side = -1; flipped.toggle() }
+        }
+        var result = path
+        var start = path.start + travelled
+        if ruler.closed {
+            start = start.truncatingRemainder(dividingBy: ruler.length)
+            if start < 0 { start += ruler.length }
+        } else {
+            start = min(max(start, 0), ruler.length)
+        }
+        result.start = start
+        result.flipped = flipped ? true : nil
+        return result
+    }
+}
+
+extension ShapeOutline.Subpath {
+    /// The subpath with every point, handles included, mapped by `transform`.
+    nonisolated func applying(_ transform: CGAffineTransform) -> ShapeOutline.Subpath {
+        ShapeOutline.Subpath(closed: closed, knots: knots.map {
+            ShapeOutline.Knot(anchor: $0.anchor.applying(transform), incoming: $0.incoming.applying(transform),
+                              outgoing: $0.outgoing.applying(transform))
+        })
+    }
+}
+
 /// One letter set on a path: the glyph, and where it goes.
 nonisolated struct PathGlyph: @unchecked Sendable {
     let font: CTFont
@@ -344,14 +413,26 @@ extension EditorSession {
         textDraft = TextDraft(documentID: document.id, layerID: nil, origin: box.origin, style: style)
     }
 
-    /// Whether `point` (document pixels) is on a text-on-path layer's own path, so a click there edits it.
-    func isOnTextPath(_ layer: ImageLayer, at point: CGPoint, tolerance: CGFloat) -> Bool {
-        guard let text = layer.liveText, let path = text.style.path else { return false }
+    /// The active layer when it's text on a path, whose text the Path Selection tool slides along it and whose path
+    /// Direct Selection reshapes.
+    var pathTextLayer: ImageLayer? {
+        guard let layer = activeLayer, layer.liveText?.style.path != nil, !layer.isGroup else { return nil }
+        return layer
+    }
+
+    /// From a text-on-path layer's path, in the path's own coordinates, to the document.
+    static func textPathToDocument(_ layer: ImageLayer) -> CGAffineTransform? {
+        guard let text = layer.liveText, text.style.path != nil else { return nil }
         let anchor = text.style.anchor
-        var map = CGAffineTransform(translationX: anchor.x, y: anchor.y)
+        return CGAffineTransform(translationX: anchor.x, y: anchor.y)
             .concatenating(CGAffineTransform(scaleX: 1 / CGFloat(text.image.width), y: 1 / CGFloat(text.image.height)))
             .concatenating(layer.transform.unitToDocument)
-        guard let placed = path.cgPath.copy(using: &map),
+    }
+
+    /// Whether `point` (document pixels) is on a text-on-path layer's own path, so a click there edits it.
+    func isOnTextPath(_ layer: ImageLayer, at point: CGPoint, tolerance: CGFloat) -> Bool {
+        guard let path = layer.liveText?.style.path, var map = Self.textPathToDocument(layer),
+              let placed = path.cgPath.copy(using: &map),
               let near = PathRuler(placed, closed: path.subpath.closed).nearest(to: point) else { return false }
         return near.gap <= tolerance
     }

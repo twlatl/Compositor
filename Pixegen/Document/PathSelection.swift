@@ -29,15 +29,22 @@ struct PathDrag {
     let layerID: UUID
     let hit: PathHit
     let start: CGPoint
-    let style: LayerShapeStyle
+    /// The shape's style; nil for text on a path.
+    let style: LayerShapeStyle?
     let transform: LayerTransform
-    /// The path when the drag began, in the layer's unit square.
+    /// The path when the drag began: a shape's in the layer's unit square, text on a path's in the path's own
+    /// coordinates.
     let knots: [ShapeOutline.Subpath]
     /// The anchors that move with an anchor drag.
     let moving: Set<PathKnot>
     /// The other selected shapes, which a drag on the shape moves along with it, as they were when it began.
     var companions: [UUID: LayerTransform] = [:]
     var moved = false
+    /// Text on a path: its style when the drag began, the map from its path to the document, and, for a drag on the
+    /// text rather than one of its points, the slide along the path.
+    var text: LayerTextStyle? = nil
+    var toDocument: CGAffineTransform? = nil
+    var slide: TextPathSlide? = nil
 }
 
 extension EditorSession {
@@ -47,16 +54,23 @@ extension EditorSession {
         return layer
     }
 
-    /// The active shape's path in document pixels, for drawing; nil when the active layer isn't a shape.
+    /// The active shape's path in document pixels, for drawing; with the Path Selection tool, text on a path's too.
+    /// Nil when the active layer has no path.
     var pathKnotsInDocument: [ShapeOutline.Subpath]? {
-        guard let layer = pathLayer, let shape = layer.liveShape,
-              let knots = Self.pathKnots(style: shape.style, transform: layer.transform, image: shape.image) else { return nil }
-        let map = layer.transform.unitToDocument
-        return knots.map { subpath in
-            ShapeOutline.Subpath(closed: subpath.closed, knots: subpath.knots.map {
-                ShapeOutline.Knot(anchor: $0.anchor.applying(map), incoming: $0.incoming.applying(map), outgoing: $0.outgoing.applying(map))
-            })
+        guard let path = selectedPath else { return nil }
+        return path.knots.map { $0.applying(path.toDocument) }
+    }
+
+    /// The active layer's path as the Path Selection tool edits it: a shape's, in its layer's unit square, or (with
+    /// that tool) text on a path's, in the path's own coordinates; and the map from those to the document.
+    var selectedPath: (layer: ImageLayer, knots: [ShapeOutline.Subpath], toDocument: CGAffineTransform, text: LayerTextStyle?)? {
+        if let layer = pathLayer, let shape = layer.liveShape,
+           let knots = Self.pathKnots(style: shape.style, transform: layer.transform, image: shape.image) {
+            return (layer, knots, layer.transform.unitToDocument, nil)
         }
+        guard tool == .pathSelection, let layer = pathTextLayer, let style = layer.liveText?.style, let path = style.path,
+              let map = Self.textPathToDocument(layer) else { return nil }
+        return (layer, [path.subpath], map, style)
     }
 
     /// The outlines of the selected shapes other than the active one, in document pixels, so it shows which shapes a
@@ -165,6 +179,12 @@ extension EditorSession {
         let visible = document.effectiveVisibleIDs
         // Topmost first: the last layer is drawn last.
         for layer in document.layers.reversed() where visible.contains(layer.id) {
+            // Text on a path: on its path, or on the letters standing along it.
+            if let text = layer.liveText, text.style.path != nil {
+                let letters = text.style.fontSize * layer.transform.size.height / CGFloat(max(1, text.image.height))
+                if isOnTextPath(layer, at: point, tolerance: tolerance + letters) { return .shape(layer.id) }
+                continue
+            }
             guard let shape = layer.liveShape,
                   let knots = Self.pathKnots(style: shape.style, transform: layer.transform, image: shape.image) else { continue }
             var map = layer.transform.unitToDocument
@@ -211,12 +231,23 @@ extension EditorSession {
             if pathSelectionMode == .direct, !extend { selectedPathKnots = [] }
         case .handle: break
         }
-        guard let layer = pathLayer, let shape = layer.liveShape,
-              let knots = Self.pathKnots(style: shape.style, transform: layer.transform, image: shape.image) else { return }
+        guard let path = selectedPath else { return }
+        let layer = path.layer
         let moving: Set<PathKnot>
         if case .anchor = hit { moving = selectedPathKnots } else { moving = [] }
-        var drag = PathDrag(layerID: layer.id, hit: movesSelected ? .shape(layer.id) : hit, start: point, style: shape.style,
-                            transform: layer.transform, knots: knots, moving: moving)
+        var drag = PathDrag(layerID: layer.id, hit: movesSelected ? .shape(layer.id) : hit, start: point, style: layer.liveShape?.style,
+                            transform: layer.transform, knots: path.knots, moving: moving)
+        if let text = path.text {
+            drag.text = text
+            drag.toDocument = path.toDocument
+            // A drag on the text itself slides it along its path, with either arrow, as in Photoshop.
+            if drag.hit == .shape(layer.id), let textPath = text.path {
+                drag.slide = TextPathSlide(textPath, at: point.applying(path.toDocument.inverted()))
+                pathDrag = drag
+                beginEdit("Move Type Along Path")
+            }
+            return
+        }
         if drag.hit == .shape(layer.id), let document {
             drag.companions = Dictionary(uniqueKeysWithValues: document.layers
                 .filter { $0.id != layer.id && selectedLayerIDs.contains($0.id) && $0.liveShape != nil }.map { ($0.id, $0.transform) })
@@ -252,8 +283,17 @@ extension EditorSession {
               let index = document?.layers.firstIndex(where: { $0.id == drag.layerID }) else { return }
         let dx = point.x - drag.start.x, dy = point.y - drag.start.y
         drag.moved = drag.moved || dx != 0 || dy != 0
+        if var slide = drag.slide, let toDocument = drag.toDocument, var style = drag.text {
+            style.path = slide.drag(to: point.applying(toDocument.inverted()))
+            drag.slide = slide
+            pathDrag = drag
+            applyTextPath(style, at: index)
+            return
+        }
         pathDrag = drag
         if case .shape = drag.hit {
+            // Text on a path is moved with the Move tool; here it only slides along its path.
+            guard drag.text == nil else { return }
             var moved = drag.transform
             moved.origin = CGPoint(x: moved.origin.x + dx.rounded(), y: moved.origin.y + dy.rounded())
             document?.layers[index].transform = moved
@@ -265,8 +305,8 @@ extension EditorSession {
             }
             return
         }
-        // The drag in the layer's unit square: undo the rotation, flips and size that place it on the document.
-        let inverse = drag.transform.unitToDocument.inverted()
+        // The drag in the path's own space: undo the rotation, flips and size that place it on the document.
+        let inverse = (drag.toDocument ?? drag.transform.unitToDocument).inverted()
         let delta = CGPoint(x: dx * inverse.a + dy * inverse.c, y: dx * inverse.b + dy * inverse.d)
         func shifted(_ point: CGPoint) -> CGPoint { CGPoint(x: point.x + delta.x, y: point.y + delta.y) }
         var knots = drag.knots
@@ -310,27 +350,38 @@ extension EditorSession {
     /// Delete with Direct Selection: removes the selected points, and any subpath left with too few to draw. Removing
     /// them all deletes the layer.
     func deleteSelectedPathKnots() {
-        guard pathSelectionMode == .direct, !selectedPathKnots.isEmpty, canEditLayers, let layer = pathLayer, let shape = layer.liveShape,
-              let index = document?.layers.firstIndex(where: { $0.id == layer.id }),
-              var knots = Self.pathKnots(style: shape.style, transform: layer.transform, image: shape.image) else { return }
-        guard shape.style.kind != .line else { NSSound.beep(); return }
+        guard pathSelectionMode == .direct, !selectedPathKnots.isEmpty, canEditLayers, let path = selectedPath,
+              let index = document?.layers.firstIndex(where: { $0.id == path.layer.id }) else { return }
+        guard path.text == nil, path.layer.liveShape?.style.kind != .line else { NSSound.beep(); return }
+        var knots = path.knots
         for knot in selectedPathKnots.sorted(by: { ($0.subpath, $0.knot) > ($1.subpath, $1.knot) })
             where knots.indices.contains(knot.subpath) && knots[knot.subpath].knots.indices.contains(knot.knot) {
             knots[knot.subpath].knots.remove(at: knot.knot)
         }
         knots.removeAll { $0.knots.count < ($0.closed ? 3 : 2) }
+        // Text keeps a path to stand on: at least two points of it.
+        if path.text != nil, knots.isEmpty { NSSound.beep(); return }
         selectedPathKnots = []
         guard !knots.isEmpty else { deleteLayerOrMask(); return }
-        let drag = PathDrag(layerID: layer.id, hit: .shape(layer.id), start: .zero, style: shape.style, transform: layer.transform,
-                            knots: knots, moving: [])
+        var drag = PathDrag(layerID: path.layer.id, hit: .shape(path.layer.id), start: .zero, style: path.layer.liveShape?.style,
+                            transform: path.layer.transform, knots: knots, moving: [])
+        drag.text = path.text
         beginEdit("Delete Anchor Points")
         applyPath(knots, from: drag, at: index)
         endEdit()
     }
 
-    /// Redraws the layer at `index` as `knots`, starting from the shape and placement the drag began with.
+    /// Redraws the layer at `index` as `knots`, starting from the shape and placement the drag began with. Text on a
+    /// path takes them as its path, and its letters flow along the new one.
     func applyPath(_ knots: [ShapeOutline.Subpath], from drag: PathDrag, at index: Int) {
-        guard let reshaped = Self.reshaped(style: drag.style, transform: drag.transform, knots: knots),
+        if var text = drag.text {
+            guard knots.count == 1, var path = text.path else { return }
+            path.subpath = knots[0]
+            text.path = path
+            applyTextPath(text, at: index)
+            return
+        }
+        guard let style = drag.style, let reshaped = Self.reshaped(style: style, transform: drag.transform, knots: knots),
               let layer = document?.layers[index], let asset = layer.asset else { return }
         let size = CGSize(width: max(1, reshaped.transform.size.width.rounded()), height: max(1, reshaped.transform.size.height.rounded()))
         guard let image = try? Self.shapeImage(reshaped.style, size: size),
@@ -340,6 +391,14 @@ extension EditorSession {
         document?.layers[index].transform = reshaped.transform
         document?.layers[index].asset = ImportedImage(image: image, thumbnail: thumbnail, name: asset.name)
         document?.layers[index].shape = LayerShape(style: reshaped.style, image: image)
+    }
+
+    /// Redraws text on a path at `index` as `style`, its path staying where it is on the document. A path or start that
+    /// can't be drawn leaves it as it was.
+    private func applyTextPath(_ style: LayerTextStyle, at index: Int) {
+        guard style.isValid, let layer = document?.layers[index], layer.liveText?.style != style,
+              let placed = try? Self.placedText(style, on: layer) else { return }
+        setText(placed, at: index)
     }
 
     /// Whether an anchor's handles run in one line through it, as at a smooth point.

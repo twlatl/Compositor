@@ -91,6 +91,8 @@ final class InlineTextEditor: NSView, NSTextViewDelegate {
     private var measuredStyle: LayerTextStyle?
     private var measuredSize: CGSize = .zero
     private var resize: (handle: Int, draft: TextDraft, transform: LayerTransform, start: CGPoint)?
+    /// Command-drag on text on a path: the text sliding along it.
+    private var slide: TextPathSlide?
     /// The transform the editor is actually showing. Point text grows as it is typed, so this is not always the
     /// draft's own transform, and a resize has to start from what is on screen or the text jumps.
     override var isFlipped: Bool { true }
@@ -342,6 +344,8 @@ final class InlineTextEditor: NSView, NSTextViewDelegate {
             return
         }
         guard resize == nil, canvas?.session.colorPicker == nil else { return }
+        // Command over text on a path: the Path Selection arrow, which slides it.
+        if pathStyle != nil, NSEvent.modifierFlags.contains(.command) { CanvasView.pathSelectionCursor.set(); return }
         guard let index = handle(at: point) else { NSCursor.iBeam.set(); return }
         handleCursor(index).set()
     }
@@ -526,8 +530,15 @@ final class InlineTextEditor: NSView, NSTextViewDelegate {
         }
     }
     override func mouseDown(with event: NSEvent) {
-        if let style = pathStyle {
-            placePathCaret(at: convert(event.locationInWindow, from: nil), style: style)
+        if let style = pathStyle, let path = style.path {
+            let point = convert(event.locationInWindow, from: nil)
+            // Command-drag slides the text along its path, as the Path Selection tool does.
+            if event.modifierFlags.contains(.command) {
+                let anchor = style.anchor
+                slide = TextPathSlide(path, at: CGPoint(x: point.x - anchor.x, y: point.y - anchor.y))
+                return
+            }
+            placePathCaret(at: point, style: style)
             return
         }
         guard let canvas, let document = canvas.session.document, let draft = canvas.session.textDraft,
@@ -546,6 +557,15 @@ final class InlineTextEditor: NSView, NSTextViewDelegate {
         resize = (handle, fixed, transform, pixel)
     }
     override func mouseDragged(with event: NSEvent) {
+        if var slide, let canvas, let anchor = pathStyle?.anchor {
+            let point = convert(event.locationInWindow, from: nil)
+            let path = slide.drag(to: CGPoint(x: point.x - anchor.x, y: point.y - anchor.y))
+            self.slide = slide
+            canvas.session.changeTextStyle { $0.path = path }
+            canvas.synchronizeDisplay()
+            needsDisplay = true
+            return
+        }
         guard let resize, let canvas, let document = canvas.session.document else { return }
         let point = canvas.session.viewport.documentPoint(from: canvas.convert(event.locationInWindow, from: nil), documentSize: document.size)
         let old = resize.transform
@@ -577,7 +597,7 @@ final class InlineTextEditor: NSView, NSTextViewDelegate {
         canvas.session.textDraft = draft
         canvas.synchronizeDisplay()
     }
-    override func mouseUp(with event: NSEvent) { resize = nil; window?.makeFirstResponder(textView) }
+    override func mouseUp(with event: NSEvent) { resize = nil; slide = nil; window?.makeFirstResponder(textView) }
 }
 
 extension CanvasView {

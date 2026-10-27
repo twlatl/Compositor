@@ -133,6 +133,58 @@ struct TextOnPathTests {
         #expect(shape.transform.origin.y + shape.transform.size.height > 90)
     }
 
+    @Test func draggingTheTextSlidesItAlongItsPath() throws {
+        let session = makeSession()
+        draw(session, .line, CGRect(x: 50, y: 200, width: 500, height: 0))
+        let layer = try type(session, "Slide", near: CGPoint(x: 100, y: 200))
+        let before = try #require(layer.liveText?.style.path?.start)
+        let first = try #require(try centers(layer).first)
+        session.selectTool(.pathSelection)
+        let count = session.history.undoCount
+        // On the letters, just above the line.
+        session.beginPathDrag(at: CGPoint(x: first.x, y: 190), tolerance: 5, extend: false)
+        session.dragPath(to: CGPoint(x: first.x + 60, y: 192), breaksHandle: false)
+        session.dragPath(to: CGPoint(x: first.x + 120, y: 190), breaksHandle: false)
+        session.endPathDrag()
+        let slid = try #require(session.activeLayer)
+        #expect(abs(try #require(slid.liveText?.style.path?.start) - before - 120) < 1)
+        #expect(slid.liveText?.style.path?.isFlipped == false)
+        #expect(abs(try #require(try centers(slid).first).x - first.x - 120) < 1)
+        #expect(slid.transform == layer.transform, "the layer stays where it was; only its letters move")
+        #expect(session.history.undoCount == count + 1)
+        session.undo()
+        #expect(session.activeLayer?.liveText?.style.path?.start == before)
+    }
+
+    @Test func draggingAcrossThePathFlipsTheText() throws {
+        let session = makeSession()
+        draw(session, .line, CGRect(x: 50, y: 200, width: 500, height: 0))
+        let layer = try type(session, "Over", near: CGPoint(x: 100, y: 200))
+        let first = try #require(try centers(layer).first)
+        session.selectTool(.pathSelection)
+        session.beginPathDrag(at: CGPoint(x: first.x, y: 190), tolerance: 5, extend: false)
+        session.dragPath(to: CGPoint(x: first.x, y: 199), breaksHandle: false)
+        #expect(session.activeLayer?.liveText?.style.path?.isFlipped == false, "on the line isn't across it yet")
+        session.dragPath(to: CGPoint(x: first.x, y: 215), breaksHandle: false)
+        session.endPathDrag()
+        let flipped = try #require(session.activeLayer)
+        #expect(flipped.liveText?.style.path?.isFlipped == true)
+        #expect(try centers(flipped).allSatisfy { $0.y > 200 })
+    }
+
+    @Test func slidingRoundAClosedPathWraps() throws {
+        let path = TextPath(subpath: ShapeOutline.Subpath(closed: true, knots: [
+            ShapeOutline.Knot(anchor: CGPoint(x: 0, y: 0)), ShapeOutline.Knot(anchor: CGPoint(x: 100, y: 0)),
+            ShapeOutline.Knot(anchor: CGPoint(x: 100, y: 100)), ShapeOutline.Knot(anchor: CGPoint(x: 0, y: 100)),
+        ]), start: 10)
+        var slide = try #require(TextPathSlide(path, at: CGPoint(x: 10, y: -3)))
+        // Back past the first point: a short step back, round to the end of the path.
+        _ = slide.drag(to: CGPoint(x: 0, y: -3))
+        let moved = slide.drag(to: CGPoint(x: -3, y: 20))
+        #expect(abs(moved.start - 380) < 0.5)
+        #expect(!moved.isFlipped, "outside the square is the letters' side all the way round")
+    }
+
     @Test func savesAsVersion21AndReopens() async throws {
         let session = makeSession()
         draw(session, .ellipse, CGRect(x: 100, y: 100, width: 200, height: 200))

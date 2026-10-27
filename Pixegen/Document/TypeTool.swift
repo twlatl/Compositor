@@ -282,32 +282,17 @@ extension EditorSession {
             return true
         }
         do {
-            let image = try Self.textImage(draft.style)
-            let text = LayerText(style: draft.style, image: image)
             if let id = draft.layerID {
                 guard let index = document?.layers.firstIndex(where: { $0.id == id }),
-                      let layer = document?.layers[index], layer.liveText != nil, let asset = layer.asset else { return false }
+                      let layer = document?.layers[index], layer.liveText != nil else { return false }
                 if layer.liveText?.style == draft.style && (draft.transform == nil || draft.transform == layer.transform) { succeeded = true; return true }
-                let thumbnail = try PixelInvert.thumbnail(of: image)
-                var transform = draft.transform ?? layer.transform
-                // Keep the transformed upper-left corner (text on a path: its path) and the user's scale, rotation and
-                // flips.
-                let anchor = transform.point(Self.unit(layer.liveText?.style.anchor ?? .zero, in: asset.image))
-                if draft.transform == nil || draft.style.boxSize == nil {
-                    transform.size = CGSize(width: CGFloat(image.width) * transform.size.width / CGFloat(asset.image.width),
-                                            height: CGFloat(image.height) * transform.size.height / CGFloat(asset.image.height))
-                    let moved = transform.point(Self.unit(draft.style.anchor, in: image))
-                    transform.origin.x += anchor.x - moved.x
-                    transform.origin.y += anchor.y - moved.y
-                }
-                guard transform.isValid else { throw ProjectError.tooLarge }
+                let placed = try Self.placedText(draft.style, on: layer, transform: draft.transform)
                 beginEdit("Edit Text")
-                if layer.mask?.placement == nil { document?.layers[index].mask?.placement = layer.maskTransform }
-                document?.layers[index].asset = ImportedImage(image: image, thumbnail: thumbnail, name: asset.name)
-                document?.layers[index].text = text
-                document?.layers[index].transform = transform
+                setText(placed, at: index)
                 endEdit()
             } else {
+                let image = try Self.textImage(draft.style)
+                let text = LayerText(style: draft.style, image: image)
                 let anchor = draft.style.anchor
                 addPixelLayer(image, at: CGPoint(x: draft.origin.x - anchor.x, y: draft.origin.y - anchor.y), name: Self.layerName(for: draft.style.content), editName: "New Text Layer",
                               dropsSelection: false, text: text)
@@ -323,6 +308,37 @@ extension EditorSession {
             brushError = error.localizedDescription
             return false
         }
+    }
+
+    /// Text layer `layer` redrawn as `style`: its new pixels, and the placement that keeps its upper-left corner (text
+    /// on a path: its path) where it is on the document, with the layer's scale, rotation and flips. A box's own
+    /// `transform`, when given, is used as it is.
+    static func placedText(_ style: LayerTextStyle, on layer: ImageLayer,
+                           transform given: LayerTransform? = nil) throws -> (text: LayerText, thumbnail: CGImage, transform: LayerTransform) {
+        guard let old = layer.liveText else { throw ProjectError.invalid }
+        let image = try textImage(style)
+        let thumbnail = try PixelInvert.thumbnail(of: image)
+        var transform = given ?? layer.transform
+        if given == nil || style.boxSize == nil {
+            let anchor = transform.point(unit(old.style.anchor, in: old.image))
+            transform.size = CGSize(width: CGFloat(image.width) * transform.size.width / CGFloat(old.image.width),
+                                    height: CGFloat(image.height) * transform.size.height / CGFloat(old.image.height))
+            let moved = transform.point(unit(style.anchor, in: image))
+            transform.origin.x += anchor.x - moved.x
+            transform.origin.y += anchor.y - moved.y
+        }
+        guard transform.isValid else { throw ProjectError.tooLarge }
+        return (LayerText(style: style, image: image), thumbnail, transform)
+    }
+
+    /// Puts text `placedText` worked out on the layer at `index`. Not an undo step of its own.
+    func setText(_ placed: (text: LayerText, thumbnail: CGImage, transform: LayerTransform), at index: Int) {
+        guard let layer = document?.layers[index], let asset = layer.asset else { return }
+        // A mask that follows the layer's pixel grid stays where it is while that grid changes.
+        if layer.mask?.placement == nil { document?.layers[index].mask?.placement = layer.maskTransform }
+        document?.layers[index].asset = ImportedImage(image: placed.text.image, thumbnail: placed.thumbnail, name: asset.name)
+        document?.layers[index].text = placed.text
+        document?.layers[index].transform = placed.transform
     }
 
     @discardableResult
