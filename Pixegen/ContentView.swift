@@ -26,38 +26,43 @@ struct ContentView: View {
     }
     // Extracted from `body`: as one expression the type checker times out (Xcode 26.1).
     @ViewBuilder private var toolHeaders: some View {
+        // With two or more shapes selected, their operations lead whichever tool's bar is showing, pushing it right.
+        HStack(spacing: 0) {
+            if session.canApplyShapeOperation {
+                ShapeOperationButtons(session: session).padding(.leading, 18).padding(.trailing, 12).toolHeaderBar()
+                Divider().frame(height: ToolHeaderStyle.height)
+            }
+            toolHeader
+        }
+        Divider()
+    }
+
+    /// The tool in hand's own bar: exactly one of these shows.
+    @ViewBuilder private var toolHeader: some View {
         Group {
             if session.tool == .move {
                 TransformInspector(session: session).id(session.activeLayerID)
-                Divider()
             }
             if session.tool.isBrushTool {
                 BrushControls(session: session)
-                Divider()
             }
             if session.tool.isSelectionTool {
                 LassoControls(session: session)
-                Divider()
             }
             if session.tool == .gradient {
                 GradientControls(session: session)
-                Divider()
             }
             if session.tool == .type {
                 TypeControls(session: session)
-                Divider()
             }
             if session.tool == .shape {
                 ShapeControls(session: session)
-                Divider()
             }
             if session.tool == .pathSelection {
                 PathSelectionControls(session: session)
-                Divider()
             }
             if session.tool == .pen {
                 PenControls(session: session)
-                Divider()
             }
             if session.tool == .eyedropper {
                 HStack(spacing: 16) {
@@ -65,15 +70,12 @@ struct ContentView: View {
                     Toggle("Sample Ring", isOn: $session.showsSampleRing).toggleStyle(.checkbox)
                     Spacer()
                 }.padding(.horizontal, 18).toolHeaderBar()
-                Divider()
             }
             if session.tool == .hand || session.tool == .zoom {
                 NavigationToolHeader(session: session)
-                Divider()
             }
             if session.tool == .crop {
                 CropControls(session: session)
-                Divider()
             }
             // No tool keeps the header, so the canvas doesn't jump.
             if session.tool == .idle {
@@ -81,7 +83,6 @@ struct ContentView: View {
                     Text("Select a tool").font(ToolHeaderStyle.titleFont)
                     Spacer()
                 }.padding(.horizontal, 18).toolHeaderBar()
-                Divider()
             }
         }
     }
@@ -345,7 +346,7 @@ struct ContentView: View {
         case .pathSelection:
             session.pathSelectionMode == .direct
                 ? "Click a point to select it · Shift-click adds · Drag points or handles to reshape · Option-drag a handle to break the curve · Delete removes points · Shift-A for Path Selection"
-                : "Click a shape to select its path · Drag to move it · Shift-A for Direct Selection to move its points"
+                : "Click a shape to select its path · Shift-click adds shapes, to combine them · Drag to move · Shift-A for Direct Selection to move its points"
         case .gradient: "Drag to draw · Drag ends to adjust · Shift 45° · 1–0 opacity · Enter apply · Escape cancel"
         case .crop: "Drag to crop · Enter apply · Escape cancel · Space to pan"
         case .move: "Drag to move · Handles to resize · Circle to rotate · 1–0 layer opacity · Space to pan"

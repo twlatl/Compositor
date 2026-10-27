@@ -35,6 +35,8 @@ struct PathDrag {
     let knots: [ShapeOutline.Subpath]
     /// The anchors that move with an anchor drag.
     let moving: Set<PathKnot>
+    /// The other selected shapes, which a drag on the shape moves along with it, as they were when it began.
+    var companions: [UUID: LayerTransform] = [:]
     var moved = false
 }
 
@@ -54,6 +56,18 @@ extension EditorSession {
             ShapeOutline.Subpath(closed: subpath.closed, knots: subpath.knots.map {
                 ShapeOutline.Knot(anchor: $0.anchor.applying(map), incoming: $0.incoming.applying(map), outgoing: $0.outgoing.applying(map))
             })
+        }
+    }
+
+    /// The outlines of the selected shapes other than the active one, in document pixels, so it shows which shapes a
+    /// Shift-click has picked up.
+    var otherSelectedShapeOutlines: [CGPath] {
+        guard let document, selectedLayerIDs.count > 1 else { return [] }
+        return document.layers.compactMap { layer in
+            guard layer.id != activeLayerID, selectedLayerIDs.contains(layer.id), let shape = layer.liveShape,
+                  let knots = Self.pathKnots(style: shape.style, transform: layer.transform, image: shape.image) else { return nil }
+            var map = layer.transform.unitToDocument
+            return ShapeOutline.path(of: knots).copy(using: &map)
         }
     }
 
@@ -164,14 +178,24 @@ extension EditorSession {
         return nil
     }
 
-    /// A press with the Path Selection tool. Shift adds a point to the ones selected (or takes it away).
+    /// A press with the Path Selection tool. Shift adds a point to the ones selected (or takes it away), and on a
+    /// shape, adds that shape's layer to the selection (or takes it away) as in Photoshop, keeping the active one:
+    /// the shape Combine, Subtract and the rest act on. A press on one of several selected shapes drags them all.
     func beginPathDrag(at point: CGPoint, tolerance: CGFloat, extend: Bool) {
         guard tool == .pathSelection, canEditLayers, point.x.isFinite, point.y.isFinite else { return }
         guard let hit = pathHit(at: point, tolerance: tolerance) else {
             if !extend { selectedPathKnots = [] }
             return
         }
-        if case .shape(let id) = hit, id != activeLayerID {
+        if case .shape(let id) = hit, extend {
+            toggleShapeSelection(id)
+            return
+        }
+        // Another of several selected shapes: they all move together, and the active one stays the one they act on.
+        let movesSelected: Bool
+        if case .shape(let id) = hit, selectedLayerIDs.count > 1, selectedLayerIDs.contains(id) { movesSelected = true }
+        else { movesSelected = false }
+        if case .shape(let id) = hit, id != activeLayerID, !movesSelected {
             selectLayer(id)
             selectedPathKnots = []
         }
@@ -191,9 +215,34 @@ extension EditorSession {
               let knots = Self.pathKnots(style: shape.style, transform: layer.transform, image: shape.image) else { return }
         let moving: Set<PathKnot>
         if case .anchor = hit { moving = selectedPathKnots } else { moving = [] }
-        pathDrag = PathDrag(layerID: layer.id, hit: hit, start: point, style: shape.style, transform: layer.transform,
-                            knots: knots, moving: moving)
-        beginEdit(pathSelectionMode == .path || hit == .shape(layer.id) ? "Move Path" : "Edit Path")
+        var drag = PathDrag(layerID: layer.id, hit: movesSelected ? .shape(layer.id) : hit, start: point, style: shape.style,
+                            transform: layer.transform, knots: knots, moving: moving)
+        if drag.hit == .shape(layer.id), let document {
+            drag.companions = Dictionary(uniqueKeysWithValues: document.layers
+                .filter { $0.id != layer.id && selectedLayerIDs.contains($0.id) && $0.liveShape != nil }.map { ($0.id, $0.transform) })
+        }
+        pathDrag = drag
+        beginEdit(pathSelectionMode == .path || drag.hit == .shape(layer.id) ? (drag.companions.isEmpty ? "Move Path" : "Move Paths") : "Edit Path")
+    }
+
+    /// Shift-click on a shape: its layer joins the selected ones, or leaves them. The active layer stays active unless
+    /// it's the one taken away.
+    private func toggleShapeSelection(_ id: UUID) {
+        guard activeLayer?.liveShape != nil, activeLayerID != nil else {
+            selectLayer(id)
+            selectedPathKnots = []
+            return
+        }
+        var ids = selectedLayerIDs
+        if ids.contains(id) {
+            guard ids.count > 1 else { return }
+            ids.remove(id)
+        } else {
+            ids.insert(id)
+        }
+        let primary = ids.contains(activeLayerID ?? id) ? activeLayerID : document?.layers.last { ids.contains($0.id) }?.id
+        if primary != activeLayerID { selectedPathKnots = [] }
+        selectLayers(ids, primary: primary)
     }
 
     /// Path Selection (or a drag on the shape itself) moves the whole shape; Direct Selection moves the points
@@ -208,6 +257,12 @@ extension EditorSession {
             var moved = drag.transform
             moved.origin = CGPoint(x: moved.origin.x + dx.rounded(), y: moved.origin.y + dy.rounded())
             document?.layers[index].transform = moved
+            for (id, transform) in drag.companions {
+                guard let other = document?.layers.firstIndex(where: { $0.id == id }) else { continue }
+                var shifted = transform
+                shifted.origin = CGPoint(x: transform.origin.x + dx.rounded(), y: transform.origin.y + dy.rounded())
+                document?.layers[other].transform = shifted
+            }
             return
         }
         // The drag in the layer's unit square: undo the rotation, flips and size that place it on the document.

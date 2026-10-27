@@ -373,6 +373,12 @@ struct PixegenApp: App {
                     Group {
                         Button(session.mergeTitle) { session.mergeLayers() }
                             .configuredKeyboardShortcut("e").disabled(!session.canMergeLayers)
+                        Menu("Combine Shapes") {
+                            ForEach(ShapeOperation.allCases, id: \.self) { operation in
+                                Button(operation.rawValue) { session.applyShapeOperation(operation) }
+                                    .assignableShortcut(operation.rawValue)
+                            }
+                        }.disabled(!session.canApplyShapeOperation)
                         Divider()
                         Button("Flip Layer Horizontal") { session.flipLayers(horizontally: true) }
                             .disabled(!session.canTransform)
