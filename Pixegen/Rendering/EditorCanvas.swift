@@ -230,7 +230,8 @@ final class CanvasView: NSView {
         var turn = CGAffineTransform(rotationAngle: -.pi / 4)
         return path.copy(using: &turn) ?? path
     }()
-    /// The nib with a badge beside its tip: + for Add Anchor Point, − for Delete, a ring where a click closes the path.
+    /// The nib with a badge: beside its tip, + for Add Anchor Point and − for Delete; at its bottom right, a dot where
+    /// a click closes the path.
     private static func makePenCursor(badge: PenHover) -> NSCursor {
         let tip = NSPoint(x: 4, y: 4)
         let nib = NSBezierPath(cgPath: penNibPath)
@@ -248,9 +249,7 @@ final class CanvasView: NSView {
         case .delete:
             mark.append(NSBezierPath(rect: NSRect(x: center.x - 3.5, y: center.y - 0.75, width: 7, height: 1.5)))
         case .close:
-            mark.append(NSBezierPath(ovalIn: NSRect(x: center.x - 3, y: center.y - 3, width: 6, height: 6)))
-            mark.append(NSBezierPath(ovalIn: NSRect(x: center.x - 1.6, y: center.y - 1.6, width: 3.2, height: 3.2)))
-            mark.windingRule = .evenOdd
+            mark.append(NSBezierPath(ovalIn: NSRect(x: 18.5, y: 18.5, width: 5, height: 5)))
         case .none: break
         }
         if !mark.isEmpty {
@@ -1729,7 +1728,8 @@ final class CanvasView: NSView {
         // only tools whose cursor depends on where the pointer is also track movement.
         // The picker panel stays key, so sampling must track while this window is not.
         var options: NSTrackingArea.Options = [.mouseEnteredAndExited, picking ? .activeAlways : .activeInKeyWindow, .inVisibleRect]
-        if picking || session.tool == .move || session.tool.isBrushTool || session.tool.isSelectionTool {
+        // The Pen tool's badge says what a click would do where the pointer is: close the path over its first point.
+        if picking || session.tool == .move || session.tool == .pen || session.tool.isBrushTool || session.tool.isSelectionTool {
             options.formUnion([.mouseMoved, .cursorUpdate])
         }
         let area = NSTrackingArea(rect: .zero, options: options, owner: self)
