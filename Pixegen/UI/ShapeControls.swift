@@ -125,9 +125,9 @@ struct ShapeStyleControls: View {
         let fillColor = target?.color ?? session.foregroundColor
         HStack(spacing: 6) {
             if kind == .line {
-                Text("Color:")
+                Text("Color:").fixedSize()
             } else {
-                Toggle("Fill:", isOn: filled).toggleStyle(.checkbox)
+                Toggle("Fill:", isOn: filled).toggleStyle(.checkbox).fixedSize()
                     .help(target != nil ? "Fill the selected shape" : "Fill new shapes")
             }
             // One well for a color or a gradient, so its picker stays open while it switches between them.
@@ -142,7 +142,7 @@ struct ShapeStyleControls: View {
             field("Weight", systemImage: nil, value: lineWeight, range: 1...5000, unit: "px", help: "How thick the line is")
         } else {
             HStack(spacing: 6) {
-                Toggle("Stroke:", isOn: stroked).toggleStyle(.checkbox)
+                Toggle("Stroke:", isOn: stroked).toggleStyle(.checkbox).fixedSize()
                     .help("A stroke along the shape's outline")
                 ColorWell(title: "Stroke color", color: target?.stroke?.color ?? session.shapeStrokeColor,
                           gradient: target != nil ? target?.stroke?.gradient : session.shapeStrokeGradient, session: session) {
