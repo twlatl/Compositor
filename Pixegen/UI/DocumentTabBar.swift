@@ -1,8 +1,8 @@
 import SwiftUI
 import UniformTypeIdentifiers
 
-/// The projects tabbed together in this window, under the tool's bar: each a fixed width, its name cut short with "…"
-/// before its zoom is, the close button on its left. The project whose view this is in is the active tab.
+/// The projects tabbed together in this window, under the tool's bar: each a fixed width, its name centered and cut
+/// short with "…" before its zoom is, the close button on its left. The project whose view this is in is the active tab.
 struct DocumentTabBar: View {
     static let height: CGFloat = 30
     static let tabWidth: CGFloat = 220
@@ -40,19 +40,21 @@ private struct DocumentTabItem: View {
     let isAlone: Bool
     @State private var hovering = false
     @State private var targeted = false
+    private static let closeSize: CGFloat = 16
+    private static let closeInset: CGFloat = 8
 
     var body: some View {
         HStack(spacing: 6) {
-            closeButton
             // The name gives way first, so the zoom always shows.
             Text(tab.title).lineLimit(1).truncationMode(.tail)
             if let zoom = tab.zoomLabel { Text(zoom).lineLimit(1).fixedSize() }
-            Spacer(minLength: 0)
         }
+        // Centered in the tab: kept clear of the close button, and as far in from the right, so it stays centered.
+        .padding(.horizontal, Self.closeInset + Self.closeSize + 6)
+        .frame(width: DocumentTabBar.tabWidth, height: DocumentTabBar.height)
+        .overlay(alignment: .leading) { closeButton.padding(.leading, Self.closeInset) }
         .font(.system(size: 12, weight: isActive ? .semibold : .regular))
         .foregroundStyle(isActive ? Color.white : Color.secondary)
-        .padding(.horizontal, 8)
-        .frame(width: DocumentTabBar.tabWidth, height: DocumentTabBar.height)
         .background(isActive ? Color.white.opacity(0.09) : hovering ? Color.white.opacity(0.04) : .clear)
         .overlay { if targeted { Rectangle().strokeBorder(Color.accentColor, lineWidth: 2) } }
         .contentShape(Rectangle())
@@ -89,7 +91,7 @@ private struct DocumentTabItem: View {
                     Image(systemName: "xmark").font(.system(size: 9, weight: .bold))
                 }
             }
-            .frame(width: 16, height: 16)
+            .frame(width: Self.closeSize, height: Self.closeSize)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
