@@ -26,10 +26,16 @@ struct ContentView: View {
     }
     // Extracted from `body`: as one expression the type checker times out (Xcode 26.1).
     @ViewBuilder private var toolHeaders: some View {
-        // With two or more shapes selected, their operations lead whichever tool's bar is showing, pushing it right.
+        // With two or more shapes selected, their operations lead whichever tool's bar is showing, pushing it right. The
+        // Move and Path Selection tools' Arrange button follows them, ahead of the tool's own controls.
+        let arranges = session.tool == .move || session.tool == .pathSelection
         HStack(spacing: 0) {
-            if session.canApplyShapeOperation {
-                ShapeOperationButtons(session: session).padding(.leading, 18).padding(.trailing, 12).toolHeaderBar()
+            if session.canApplyShapeOperation || arranges {
+                HStack(spacing: 8) {
+                    if session.canApplyShapeOperation { ShapeOperationButtons(session: session) }
+                    if arranges { ArrangeButton(session: session) }
+                }
+                .padding(.leading, 18).padding(.trailing, 12).toolHeaderBar()
                 Divider().frame(height: ToolHeaderStyle.height)
             }
             toolHeader
