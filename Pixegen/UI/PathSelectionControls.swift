@@ -16,7 +16,6 @@ struct PathSelectionControls: View {
             }
             .pickerStyle(.segmented).labelsHidden().fixedSize()
             .help("Shift-A (or Tab) switches between Path Selection and Direct Selection")
-            ArrangeButton(session: session)
             if session.pathTextLayer != nil, session.pathLayer == nil {
                 if session.pathSelectionMode == .direct {
                     Button("Delete Points") { session.deleteSelectedPathKnots() }

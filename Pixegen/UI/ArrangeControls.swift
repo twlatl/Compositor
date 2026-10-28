@@ -1,14 +1,14 @@
 import SwiftUI
 
-/// The Move and Path Selection bars' Arrange button: a popover of stacking order, Align and Distribute for the
-/// selected layers.
+/// The Move and Path Selection tools' Arrange button, after the shape operations at the tool bar's start: a popover of
+/// stacking order, Align and Distribute for the selected layers.
 struct ArrangeButton: View {
     @Bindable var session: EditorSession
     @State private var showsPanel = false
 
     var body: some View {
         Button { showsPanel = true } label: {
-            Image(systemName: "align.horizontal.left").frame(width: 16, height: 16).padding(3).contentShape(Rectangle())
+            Image(systemName: "align.horizontal.left.fill").frame(width: 16, height: 16).padding(3).contentShape(Rectangle())
         }
         .buttonStyle(.borderless)
         .help("Arrange: restack, align and distribute the selected layers")
