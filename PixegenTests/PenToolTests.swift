@@ -65,6 +65,16 @@ struct PenToolTests {
         #expect(try await !covered(session, 12, 35))
     }
 
+    @Test func thePointerOverTheFirstPointClosesThePath() {
+        let session = makeSession()
+        click(session, CGPoint(x: 10, y: 10))
+        #expect(session.penHover(at: CGPoint(x: 11, y: 10), tolerance: 3) == .none, "one point has nothing to close")
+        click(session, CGPoint(x: 50, y: 10))
+        #expect(session.penHover(at: CGPoint(x: 11, y: 10), tolerance: 3) == .close)
+        #expect(session.penHover(at: CGPoint(x: 20, y: 10), tolerance: 3) == .none, "away from the first point")
+        #expect(session.penHover(at: CGPoint(x: 50, y: 10), tolerance: 3) == .none, "over the last point")
+    }
+
     @Test func draggingMakesASmoothPointAndOptionBreaksItsHandle() throws {
         let session = makeSession()
         click(session, CGPoint(x: 10, y: 50))
